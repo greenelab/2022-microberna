@@ -1,0 +1,7 @@
+name: microberna
+channels:
+   - conda-forge
+   - bioconda
+   - defaults
+dependencies:
+   - snakemake-minimal=6.13.1 
