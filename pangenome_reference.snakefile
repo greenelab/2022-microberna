@@ -17,7 +17,6 @@ class Checkpoint_GrabAccessions:
         self.pattern = pattern
 
     def get_genome_accs(self, gtdb_species):
-        # TODO update output file
         acc_csv = f'outputs/gtdb_genomes_by_species/{gtdb_species}.csv'
         assert os.path.exists(acc_csv)
 
