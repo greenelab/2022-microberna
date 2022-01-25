@@ -2,8 +2,9 @@ import csv
 import sys
 import urllib.request
 
-TMPDIR = "/scratch" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
-GTDB_SPECIES = ['s__Pseudomonas_aeruginosa']
+TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
+#GTDB_SPECIES = ['s__Pseudomonas_aeruginosa']
+GTDB_SPECIES = ['s__Bacillus_pumilus']
 
 class Checkpoint_GrabAccessions:
     """
@@ -46,6 +47,7 @@ class Checkpoint_GrabAccessions:
 rule all:
     input:
         expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES)
+        #expand("outputs/gtdb_genomes_charcoal/{gtdb_species}/clean_finished.txt", gtdb_species = GTDB_SPECIES)
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -114,7 +116,7 @@ rule download_matching_genomes:
 
 
 rule sourmash_download_gtdb_database:
-    output: "inputs/gtdb-rs202.genomic.k31.zip" 
+    output: "inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip" 
     resources:
         mem_mb = 1000,
         tmpdir = TMPDIR
@@ -140,7 +142,7 @@ rule charcoal_generate_conf_file:
         genomes = ancient(Checkpoint_GrabAccessions("inputs/gtdb_genomes/{{gtdb_species}}/{acc}_genomic.fna.gz")),
         genome_list = "outputs/charcoal_conf/charcoal_{gtdb_species}.genome-list.txt",
         charcoal_lineages = "outputs/gtdb_genomes_by_species/{gtdb_species}_charcoal_lineages.csv",
-        db="inputs/gtdb-rs202.genomic.k31.zip",
+        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
         db_lineages="inputs/gtdb-rs202.taxonomy.v2.csv"
     output:
         conf = "conf/charcoal-conf-{gtdb_species}.yml",
@@ -166,53 +168,39 @@ strict: 1
 """, file=fp)
 
 
-rule charcoal_decontaminate_genomes:
+checkpoint charcoal_decontaminate_genomes:
     input:
         genomes = ancient(Checkpoint_GrabAccessions("inputs/gtdb_genomes/{{gtdb_species}}/{acc}_genomic.fna.gz")),
         genome_list = "outputs/charcoal_conf/charcoal_{gtdb_species}.genome-list.txt",
         conf = "conf/charcoal-conf-{gtdb_species}.yml",
         charcoal_lineages = "outputs/gtdb_genomes_by_species/{gtdb_species}_charcoal_lineages.csv",
-        db="inputs/gtdb-rs202.genomic.k31.zip",
+        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
         db_lineages="inputs/gtdb-rs202.taxonomy.v2.csv"
-    output: 
-        hitlist="outputs/gtdb_genomes_charcoal/{gtdb_species}/stage1_hitlist.csv",
-        clean_finished="outputs/gtdb_genomes_charcoal/{gtdb_species}/clean_finished.txt"
+    output: directory("outputs/gtdb_genomes_charcoal/{gtdb_species}/"),
     resources:
-        mem_mb = 64000,
+        mem_mb = 275000,
         tmpdir = TMPDIR
     benchmark: "benchmarks/charcoal_{gtdb_species}.txt"
-    threads: 4
+    threads: 32
     conda: "envs/charcoal.yml"
     shell:'''
     python -m charcoal run {input.conf} -j {threads} clean --nolock --latency-wait 15 --rerun-incomplete
-    touch {output.clean_finished}
-    '''
-
-rule charcoal_touch_decontaminated_genomes:
-    input: 
-        "outputs/gtdb_genomes_charcoal/{gtdb_species}/stage1_hitlist.csv",
-        "outputs/gtdb_genomes_charcoal/{gtdb_species}/clean_finished.txt"
-    output: "outputs/gtdb_genomes_charcoal/{gtdb_species}/{acc}_genomic.fna.gz.clean.fa.gz"
-    resources:
-        mem_mb = 1000
-    threads: 1
-    shell:'''
-    ls {output}
     '''
 
 rule bakta_download_db:
     output: "inputs/bakta_db/db/version.json"
     threads: 1
     resources: mem_mb = 4000
+    params: outdir = "inputs/bakta_db"
     conda: "envs/bakta.yml"
     shell:'''
-    bakta_db download --output {output}
+    bakta_db download --output {params.outdir}
     '''
 
 rule bakta_annotate_gtdb_genomes:
     input: 
-        fna= "inputs/gtdb_genomes/{gtdb_species}/{acc}_genomic.fna.gz",
-        db="inputs/bakta_db/db/version.json"
+        fna=ancient("outputs/gtdb_genomes_charcoal/{gtdb_species}/{acc}_genomic.fna.gz.clean.fa.gz"),
+        db="inputs/bakta_db/db/version.json",
     output: 
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.faa",
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3",
@@ -227,15 +215,21 @@ rule bakta_annotate_gtdb_genomes:
         outdir = lambda wildcards: 'outputs/gtdb_genomes_bakta/' + wildcards.gtdb_species
     threads: 1
     shell:'''
-    bakta --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdir} \
-        --locus-tag {wildcards.acc} --keep-contig-headers {input.fna}
+    bakta --threads {threads} --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdir} \
+        --locus {wildcards.acc} --keep-contig-headers {input.fna}
     '''
 
-# TODO: see if roary can be forced to make "pan_genome_reference.fa" into
-#       {gtdb_species}_pan_genome_reference.fa or some such
+def checkpoint_charcoal_decontaminate_genomes(wildcards):
+    # checkpoint_output encodes the output dir from the checkpoint rule.
+    checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
+    file_names = expand("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3",
+                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
+    return file_names
+
+
 rule roary_determine_pangenome:
-    input: Checkpoint_GrabAccessions('outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3')
-    output: 'outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa' 
+    input: checkpoint_charcoal_decontaminate_genomes,
+    output: "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa"
     conda: 'envs/roary.yml'
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000,
@@ -245,10 +239,7 @@ rule roary_determine_pangenome:
     params: 
         outdir = lambda wildcards: 'outputs/gtdb_genomes_roary/' + wildcards.gtdb_species
     shell:'''
-    roary -e -n -f {params.outdir} -p {threads} -z {input}
-    # may need these...unclear if roary does the right thing if snakemake premakes dir.
-    #mv {params.outdir}_[0-9]*/* {params.outdir}/
-    #rmdir {params.outdir}_[0-9]*
+    roary -r -e -n -f {params.outdir} -p {threads} -z {input}
     '''
 
 rule translate_pangenome_for_annotations:
@@ -277,7 +268,6 @@ rule eggnog_download_db:
     '''
 
 rule eggnog_annotate_pangenome:
-    #TODO: I think this requires the external creation of ./tmp, maybe add mkdir -p tmp/ to beginning of rule
     input: 
         faa = "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.faa",
         db = 'inputs/eggnog_db/eggnog.db'
@@ -292,6 +282,7 @@ rule eggnog_annotate_pangenome:
         outdir = "outputs/gtdb_genomes_roary_eggnog/",
         dbdir = "inputs/eggnog_db"
     shell:'''
+    mkdir -p tmp/
     emapper.py --cpu {threads} -i {input.faa} --output {wildcards.gtdb_species} \
        --output_dir {params.outdir} -m hmmer -d none --tax_scope auto \
        --go_evidence non-electronic --target_orthologs all --seed_ortholog_evalue 0.001 \
