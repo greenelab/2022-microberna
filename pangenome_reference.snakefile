@@ -1,10 +1,51 @@
 import csv
 import sys
 import urllib.request
+import pandas as pd
+
+m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
+SRA = m['experiment_accession']
 
 TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
 #GTDB_SPECIES = ['s__Pseudomonas_aeruginosa']
 GTDB_SPECIES = ['s__Bacillus_pumilus']
+
+class Checkpoint_RnaseqToReference:
+    """
+    Define a class a la genome-grist to simplify file specification
+    from checkpoint (e.g. solve for {acc} wildcard). This approach
+    is documented at this url:
+    http://ivory.idyll.org/blog/2021-snakemake-checkpoints.html
+    """
+    def __init__(self, pattern):
+        self.pattern = pattern
+
+    def get_acc_dbs(self, sra):
+        sra_to_ref_csv = f'outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv'
+        assert os.path.exists(sra_to_ref_csv)
+
+        # there should only be one sra_to_ref, as this reads in the csv
+        # that records the best species-level match for each SRA sample
+        with open(sra_to_ref_csv, 'rt') as fp:
+           r = csv.DictReader(fp)
+           for row in r:
+               sra_to_ref = row['sra_to_ref_species']
+
+        return sra_to_ref
+
+    def __call__(self, w):
+        global checkpoints
+
+        # wait for the results of 'query_to_species_db';
+        # this will trigger exception until that rule has been run.
+        checkpoints.rnaseq_sample_select_best_species_reference.get(**w)
+
+        # parse accessions in gather output file
+        ref_to_sra_res = self.rnaseq_sample_select_best_species_reference(w.sra)
+
+        p = expand(self.pattern, gtdb_species_to_sra=ref_to_sra_res, **w)
+        return p
+
 
 class Checkpoint_GrabAccessions:
     """
@@ -44,12 +85,16 @@ class Checkpoint_GrabAccessions:
         p = expand(self.pattern, acc=genome_accs, **w)
         return p
 
+
 rule all:
     input:
         # generate pangenome and annotate with eggnog
         #expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES),
         # generate pantranscriptome and index it with salmon
-        expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
+        #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
+        # gather RNAseq sample
+        #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA)
+        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{sra}/{{gtdb_species_to_sra}}_quant/quant.sf", sra = SRA))
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -75,6 +120,7 @@ checkpoint grab_species_accessions:
     resources:
         mem_mb = 4000
     threads: 1
+    conda: "envs/tidyverse.yml"
     script: "scripts/grab_species_accessions.R"
 
 rule make_genome_info_csv:
@@ -200,6 +246,7 @@ rule bakta_download_db:
     '''
 
 rule bakta_annotate_gtdb_genomes:
+    # TODO: change locus_tag to accept wildcards.acc if bakta/#92 gets implemented.
     input: 
         fna=ancient("outputs/gtdb_genomes_charcoal/{gtdb_species}/{acc}_genomic.fna.gz.clean.fa.gz"),
         db="inputs/bakta_db/db/version.json",
@@ -482,4 +529,140 @@ rule index_transcriptome:
     salmon index -t {input.seqs} -i {params.index_dir} --decoys {input.decoys} -k 31
     '''
 
+#################################################################
+## Download, process, and taxonomically annotate RNAseq samples
+#################################################################
 
+rule rnaseq_sample_download:
+    """
+    Need to figure out better download specification.
+    I went to the ENA, searched six samples I cared about, and downloaded the
+    metadata files, which contain the URLs. I assume there is a programmatic way
+    to generate ENA metadata tables for accessions of interest. Will investigate
+    more later.
+    """
+    output:
+        reads="outputs/rnaseq_fastp/{sra}.fq.gz",
+        json = "outputs/rnaseq_fastp/{sra}.fastp.json",
+        html = "outputs/rnaseq_fastp/{sra}.fastp.html"
+    params: tmp_base = lambda wildcards: "inputs/tmp_raw/" + wildcards.sra
+    threads: 1
+    resources:
+        mem_mb=8000
+    run:
+        row = m.loc[m['experiment_accession'] == wildcards.sra]
+        fastqs = row['fastq_ftp'].values[0]
+        fastqs = fastqs.split(";")
+        if len(fastqs) == 1:
+            # single end data; download and stream directly to fastp for trimming.
+            fastq = fastqs[0]
+            shell("mkdir -p inputs/tmp_raw")
+            if not os.path.exists(params.tmp_base + ".fastq.gz"):
+                shell("wget -O {params.tmp_base}.fastq.gz ftp://{fastq}")
+
+            shell("fastp -i {params.tmp_base}.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout > {output.reads}")
+
+            # check that the file exists, and if it does, remove raw fastq files
+            if os.path.exists(output.reads):
+                os.remove(params.tmp_base + ".fastq.gz")
+
+        else:
+            # paired end data; download both files, interleave, and then remove files
+            fastq_1 = fastqs[0]
+            fastq_2 = fastqs[1]
+            shell("mkdir -p inputs/tmp_raw")
+            if not os.path.exists(params.tmp_base + "_1.fastq.gz"):
+                shell("wget -O {params.tmp_base}_1.fastq.gz ftp://{fastq_1}")
+
+            if not os.path.exists(params.tmp_base + "_2.fastq.gz"):
+                shell("wget -O {params.tmp_base}_2.fastq.gz ftp://{fastq_2}")
+
+            shell("fastp -i {params.tmp_base}_1.fastq.gz -I {params.tmp_base}_2.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout > {output.reads}")
+
+            # check that the file exists, and if it does, remove raw fastq files
+            if os.path.exists(output.reads):
+                os.remove(params.tmp_base + "_1.fastq.gz")
+                os.remove(params.tmp_base + "_2.fastq.gz")
+                
+
+rule rnaseq_sample_sourmash_sketch:
+    input: "outputs/rnaseq_fastp/{sra}.fq.gz",
+    output: "outputs/rnaseq_sourmash_sketch/{sra}.sig"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 2000 ,
+        tmpdir= TMPDIR
+    threads: 1
+    benchmark: "benchmarks/rnaseq/sourmash_sketch_{sra}.txt"
+    conda: "envs/sourmash.yml"
+    shell:'''
+    sourmash sketch dna -p k=21,k=31,k=51,scaled=1000,abund -o {output} --name {wildcards.sra} {input}
+    '''
+
+rule sourmash_download_human_sig:
+    output: "inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
+    resources:
+        mem_mb = 1000,
+        tmpdir = TMPDIR
+    threads: 1
+    shell:'''
+    wget -O {output} https://osf.io/anj6b/download
+    '''
+
+rule rnaseq_sample_sourmash_gather_against_gtdb:
+    input:
+        sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
+        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
+        human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
+    output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 16000 ,
+        tmpdir= TMPDIR
+    threads: 1
+    benchmark: "benchmarks/rnaseq/sourmash_gather_k31_{sra}.txt"
+    conda: "envs/sourmash.yml"
+    shell:'''
+    sourmash gather -o {output} --scaled 2000 -k 31 {input.sig} {input.db} {input.human}
+    '''
+
+checkpoint rnaseq_sample_select_best_species_reference:
+    """
+    Corresponds to class Checkpoint_RnaseqToReference at top of file.
+    This will read in the gather results, and output one dataframe per RNA seq sample. 
+    The dataframe will have the SRA accession and the reference genome accession.
+    wildcard {sra} will already be defined as a list of RNAseq SRA accessions at the
+    beginning of the Snakefile, and the checkpoint class will output an amalgamation 
+    of wildcards {gtdb_species}-{sra}, which will be called {gtdb_species_to_sra} in 
+    the rule all, but the hyphen should allow for the wildcards to be solved separately.
+    Example:
+    https://github.com/taylorreiter/2021-metapangenome-example/blob/main/Snakefile#L90
+    """
+    input:
+        gtdb_lineages="inputs/gtdb-rs202.taxonomy.v2.csv",
+        gather="outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
+    output: sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"
+    conda: "envs/tidyverse.yml"
+    resources:
+        mem_mb = 2000,
+        tmpdir= TMPDIR
+    threads: 1
+    benchmark: "benchmarks/rnaseq/select_species_genome_{sra}.txt"
+    script: "scripts/select_best_species_reference.R"
+
+rule rnaseq_quantify_against_species_pangenome:
+    input: 
+        sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv",
+        index = "outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json",
+        reads = "outputs/rnaseq_fastp/{sra}.fq.gz"
+    output: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant/quant.sf"
+    params: 
+        index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
+        out_dir = lambda wildcards: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant" 
+    conda: "envs/salmon.yml"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 16000 ,
+        tmpdir= TMPDIR
+    threads: 1
+    benchmark: "benchmarks/rnaseq/salmon_quantify_{gtdb_species}-{sra}.txt"
+    shell:'''
+    salmon quant -i {params.index_dir} -l A -r {input.reads} -o {params.out_dir} --validateMappings
+    '''
