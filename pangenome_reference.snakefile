@@ -46,8 +46,10 @@ class Checkpoint_GrabAccessions:
 
 rule all:
     input:
-        expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES)
-        #expand("outputs/gtdb_genomes_charcoal/{gtdb_species}/clean_finished.txt", gtdb_species = GTDB_SPECIES)
+        # generate pangenome and annotate with eggnog
+        #expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES),
+        # generate pantranscriptome and index it with salmon
+        expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -205,6 +207,7 @@ rule bakta_annotate_gtdb_genomes:
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.faa",
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3",
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna",
+        "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.ffn",
     resources: 
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
         tmpdir= TMPDIR
@@ -212,23 +215,60 @@ rule bakta_annotate_gtdb_genomes:
     conda: 'envs/bakta.yml'
     params: 
         dbdir="inputs/bakta_db/db/",
-        outdir = lambda wildcards: 'outputs/gtdb_genomes_bakta/' + wildcards.gtdb_species
+        outdir = lambda wildcards: 'outputs/gtdb_genomes_bakta/' + wildcards.gtdb_species,
+        locus_tag = lambda wildcards: re.sub("[CF_\.]", "", wildcards.acc)
     threads: 1
     shell:'''
     bakta --threads {threads} --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdir} \
-        --locus {wildcards.acc} --keep-contig-headers {input.fna}
+        --locus {wildcards.acc} --locus-tag {params.locus_tag} --keep-contig-headers {input.fna}
     '''
 
-def checkpoint_charcoal_decontaminate_genomes(wildcards):
+def checkpoint_charcoal_decontaminate_genomes1(wildcards):
+    # checkpoint_output encodes the output dir from the checkpoint rule.
+    checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
+    file_names = expand("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.ffn",
+                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
+    return file_names
+
+rule cat_annotated_sequences:
+    input: checkpoint_charcoal_decontaminate_genomes1
+    output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    benchmark:"benchmarks/cat_annotated_seqs_{gtdb_species}.txt"
+    shell:'''
+    cat {input} > {output}
+    '''
+
+# note clustering might not be necessary because of the pufferfish index underlying salmon indexing. 
+rule cluster_annotated_sequences:
+    input: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
+    output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa"
+    threads: 1
+    resources: 
+        mem_mb=16000,
+        tmpdir=TMPDIR
+    conda: "envs/cdhit.yml"
+    benchmark:"benchmarks/cluster_annotated_{gtdb_species}.txt"
+    shell:'''
+    cd-hit-est -c .95 -i {input} -o {output}
+    '''
+
+#########################################################
+## generate pangenome
+#########################################################
+
+def checkpoint_charcoal_decontaminate_genomes2(wildcards):
     # checkpoint_output encodes the output dir from the checkpoint rule.
     checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
     file_names = expand("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3",
                         acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
     return file_names
 
-
 rule roary_determine_pangenome:
-    input: checkpoint_charcoal_decontaminate_genomes,
+    input: checkpoint_charcoal_decontaminate_genomes2,
     output: "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa"
     conda: 'envs/roary.yml'
     resources:
@@ -289,3 +329,157 @@ rule eggnog_annotate_pangenome:
        --seed_ortholog_score 60 --override --temp_dir tmp/ \
        -d 2 --data_dir {params.dbdir}
     '''
+
+
+############################################################
+## Generate decoy sequences
+############################################################
+
+rule define_genome_regions_as_bed:
+    input: ancient("outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna"),
+    output: "outputs/gtdb_genomes_regions_bed/{gtdb_species}/{acc}_region.sizes"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    conda: "envs/samtools.yml"
+    benchmark:"benchmarks/genome_regions_{gtdb_species}/{acc}.txt"
+    shell:'''    
+    samtools faidx {input}
+    cut -f 1,2 {input}.fai | sort -n -k1 > {output}
+    '''
+
+rule filter_bakta_gff:
+    input:  gff=ancient("outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3"),
+    output: gff=temp("outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered.gff3"),
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    conda: "envs/rtracklayer.yml"
+    benchmark:"benchmarks/filter_gff_{gtdb_species}/{acc}.txt"
+    script: "scripts/filter_gff.R"
+
+rule sort_bakta_gff:
+    input: gff="outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered.gff3",
+    output: gff="outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered_sorted.gff3",
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    conda: "envs/bedtools.yml"
+    benchmark:"benchmarks/sort_gff_{gtdb_species}/{acc}.txt"
+    shell:'''
+    sortBed -i {input} > {output}
+    '''
+
+rule complement_gff:
+    input:
+        gff="outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered_sorted.gff3",
+        sizes= "outputs/gtdb_genomes_regions_bed/{gtdb_species}/{acc}_region.sizes"
+    output:"outputs/gtdb_genomes_intergenic_bed/{gtdb_species}/{acc}.bed"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    conda: "envs/bedtools.yml"
+    benchmark:"benchmarks/complement_gff_{gtdb_species}/{acc}.txt"
+    shell:'''
+    bedtools complement -i {input.gff} -g {input.sizes} > {output}
+    '''
+
+rule extract_intergenic_from_genome:
+    input:
+        fna=ancient("outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna"),
+        bed="outputs/gtdb_genomes_intergenic_bed/{gtdb_species}/{acc}.bed"
+    output:"outputs/gtdb_genomes_intergenic_seqs/{gtdb_species}/{acc}.fa"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    conda: "envs/bedtools.yml"
+    benchmark:"benchmarks/extract_intergenic_{gtdb_species}/{acc}.txt"
+    shell:'''
+    bedtools getfasta -fi {input.fna} -bed {input.bed} -name -s > {output}
+    '''
+
+def checkpoint_charcoal_decontaminate_genomes3(wildcards):
+    # checkpoint_output encodes the output dir from the checkpoint rule.
+    checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
+    file_names = expand("outputs/gtdb_genomes_intergenic_seqs/{{gtdb_species}}/{acc}.fa",
+                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
+    return file_names
+
+rule cat_intergenic_sequences:
+    input: checkpoint_charcoal_decontaminate_genomes3
+    output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    benchmark:"benchmarks/cat_intergenic_{gtdb_species}.txt"
+    shell:'''
+    cat {input} > {output}
+    '''
+
+# note clustering might not be necessary because of the pufferfish index underlying salmon indexing. 
+rule cluster_intergenic_sequences:
+    input: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
+    output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
+    threads: 1
+    resources: 
+        mem_mb=16000,
+        tmpdir=TMPDIR
+    conda: "envs/cdhit.yml"
+    benchmark:"benchmarks/cluster_intergenic_{gtdb_species}.txt"
+    shell:'''
+    cd-hit-est -c 1 -i {input} -o {output}
+    '''
+
+###################################################
+## Generate decoy-aware salmon transcriptome index
+###################################################
+
+rule grab_intergenic_sequence_names:
+    input: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
+    output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    benchmark:"benchmarks/grab_intergenic_names_{gtdb_species}.txt"
+    shell:"""
+    grep '>' {input} | awk 'sub(/^>/, "")' > {output}
+    """
+
+rule combine_pangenome_and_intergenic_sequences:
+    input: 
+        "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa",
+        "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
+    output: "outputs/gtdb_genomes_salmon_ref/{gtdb_species}.fa"
+    threads: 1
+    resources: 
+        mem_mb=2000,
+        tmpdir=TMPDIR
+    benchmark:"benchmarks/combine_sequences_{gtdb_species}.txt"
+    shell:'''
+    cat {input} > {output}
+    '''
+
+rule index_transcriptome:
+    input: 
+        seqs="outputs/gtdb_genomes_salmon_ref/{gtdb_species}.fa",
+        decoys="outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt"
+    output: "outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"
+    threads: 1
+    params: index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species
+    resources: 
+        mem_mb=16000,
+        tmpdir=TMPDIR
+    conda: "envs/salmon.yml"
+    benchmark:"benchmarks/salmon_index_{gtdb_species}.txt"
+    shell:'''
+    salmon index -t {input.seqs} -i {params.index_dir} --decoys {input.decoys} -k 31
+    '''
+
+
