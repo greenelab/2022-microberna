@@ -11,7 +11,7 @@ TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or r
 class Checkpoint_RnaseqToReference:
     """
     Define a class a la genome-grist to simplify file specification
-    from checkpoint (e.g. solve for {acc} wildcard). This approach
+    from checkpoint (e.g. solve for {gtdb_species} wildcard). This approach
     is documented at this url:
     http://ivory.idyll.org/blog/2021-snakemake-checkpoints.html
     """
@@ -19,6 +19,7 @@ class Checkpoint_RnaseqToReference:
         self.pattern = pattern
 
     def get_sra_to_species(self, sra):
+        sra = w.sra
         sra_to_ref_csv = f'outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv'
         assert os.path.exists(sra_to_ref_csv)
 
@@ -27,7 +28,7 @@ class Checkpoint_RnaseqToReference:
         with open(sra_to_ref_csv, 'rt') as fp:
            r = csv.DictReader(fp)
            for row in r:
-               sra_to_ref = row['sra_to_ref_species']
+               sra_to_ref = row['species_no_space']
 
         return sra_to_ref
 
@@ -41,7 +42,7 @@ class Checkpoint_RnaseqToReference:
         # parse accessions in gather output file
         ref_to_sra_res = self.get_sra_to_species(w.sra)
 
-        p = expand(self.pattern, gtdb_species_to_sra=ref_to_sra_res, **w)
+        p = expand(self.pattern, gtdb_species=ref_to_sra_res, **w)
         return p
 
 
@@ -92,7 +93,7 @@ rule all:
         #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
         # gather RNAseq sample
         #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA)
-        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{sra}/{{gtdb_species_to_sra}}_quant/quant.sf", sra = SRA))
+        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}-{sra}_quant/quant.sf", sra = SRA))
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -304,10 +305,10 @@ rule rnaseq_quantify_against_species_pangenome:
         sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv",
         index = "outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json",
         reads = "outputs/rnaseq_fastp/{sra}.fq.gz"
-    output: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant/quant.sf"
+    output: "outputs/rnaseq_salmon/{gtdb_species}-{sra}_quant/quant.sf"
     params: 
         index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
-        out_dir = lambda wildcards: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant" 
+        out_dir = lambda wildcards: "outputs/rnaseq_salmon/" + wildcards.gtdb_species + "-" + wildcards.sra + "_quant" 
     conda: "envs/salmon.yml"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
