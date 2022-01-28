@@ -3,9 +3,7 @@ library(readr)
 
 #species_string <- 's__Pseudomonas_aeruginosa'
 species_string <- snakemake@wildcards[['gtdb_species']]
-gtdb_species_string <- gsub("_", " ", species_string)
-gtdb_species_string <- gsub("s  ", "s__", gtdb_species_string)
-
+gtdb_species_string <- gsub("(s__.*?)_", "\\1 ", species_string)
 # gtdb_lineages <- read_csv("inputs/gtdb-rs202.taxonomy.v2.csv")
 gtdb_lineages <- read_csv(snakemake@input[['gtdb_lineages']])
 
