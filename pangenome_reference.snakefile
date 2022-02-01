@@ -8,8 +8,8 @@ SRA = m['experiment_accession']
 
 TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
 #GTDB_SPECIES = ['s__Pseudomonas_aeruginosa']
-GTDB_SPECIES = ['s__Bacillus_pumilus']
-
+#GTDB_SPECIES = ['s__Bacillus_pumilus']
+GTDB_SPECIES = ['s__Faecalibacterium_prausnitzii_C']
 class Checkpoint_RnaseqToReference:
     """
     Define a class a la genome-grist to simplify file specification
@@ -91,10 +91,10 @@ rule all:
         # generate pangenome and annotate with eggnog
         #expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES),
         # generate pantranscriptome and index it with salmon
-        #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
+        expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
         # gather RNAseq sample
-        #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA)
-        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{sra}/{{gtdb_species_to_sra}}_quant/quant.sf", sra = SRA))
+        #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
+        #Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{sra}/{{gtdb_species_to_sra}}_quant/quant.sf", sra = SRA))
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -263,11 +263,10 @@ rule bakta_annotate_gtdb_genomes:
     params: 
         dbdir="inputs/bakta_db/db/",
         outdir = lambda wildcards: 'outputs/gtdb_genomes_bakta/' + wildcards.gtdb_species,
-        locus_tag = lambda wildcards: re.sub("[CF_\.]", "", wildcards.acc)
     threads: 1
     shell:'''
     bakta --threads {threads} --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdir} \
-        --locus {wildcards.acc} --locus-tag {params.locus_tag} --keep-contig-headers {input.fna}
+        --locus {wildcards.acc} --locus-tag {wildcards.acc} --keep-contig-headers {input.fna}
     '''
 
 def checkpoint_charcoal_decontaminate_genomes1(wildcards):
@@ -656,7 +655,7 @@ rule rnaseq_quantify_against_species_pangenome:
     output: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant/quant.sf"
     params: 
         index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
-        out_dir = lambda wildcards: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant" 
+        out_dir = lambda wildcards: "outputs/rnaseq_salmon/{sra}/{gtdb_species_to_sra}_quant" 
     conda: "envs/salmon.yml"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,

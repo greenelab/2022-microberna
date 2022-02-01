@@ -97,12 +97,22 @@ rule bakta_annotate_gs_genomes:
     params:
         dbdir="inputs/bakta_db/db/",
         outdir = lambda wildcards: 'outputs/gs_genomes_bakta/' + wildcards.acc,
-        locus_tag = lambda wildcards: re.sub("[CF_\.]", "", wildcards.acc)
+        #locus_tag = lambda wildcards: re.sub("[CF_\.]", "", wildcards.acc)
     threads: 1
     shell:'''
     bakta --threads {threads} --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdir} \
-        --locus {wildcards.acc} --locus-tag {params.locus_tag} --keep-contig-headers {input.fna}
+        --locus {wildcards.acc} --locus-tag {wildcards.acc} --keep-contig-headers {input.fna}
     '''
+
+rule convert_gff_to_gtf_gs_genomes:
+    input: gff="outputs/gs_genomes_bakta/{acc}/{acc}.gff3",
+    output: gtf="outputs/gs_genomes_bakta/{acc}/{acc}.gtf",
+    conda: "envs/rtracklayer.yml"
+    threads: 1
+    resources: 
+        mem_mb = 3000,
+        tmpdir= TMPDIR
+    script: "scripts/convert_gff_to_gtf.R"
 
 rule rnaseq_sample_download:
     output:
@@ -149,10 +159,14 @@ rule rnaseq_sample_download:
                 os.remove(params.tmp_base + "_2.fastq.gz")
 
 rule star_index_genome:
-    input: fna = "outputs/gs_genomes_bakta/{acc}/{acc}.fna"
+    input:
+        fna = "outputs/gs_genomes_bakta/{acc}/{acc}.fna",
     output: 'outputs/gs_genomes_bakta/{acc}/SAindex'
     params: input_dir = 'outputs/gs_genomes_bakta/{acc}/' 
     conda: 'envs/star.yml'
+    resources: 
+        mem_mb = 16000,
+        tmpdir= TMPDIR
     shell:'''
     STAR --runThreadN {threads} --runMode genomeGenerate --genomeDir {params.input_dir} \
          --genomeFastaFiles {input.fna} --genomeSAindexNbases 8
@@ -168,16 +182,32 @@ rule star_map_single_end:
         genome_dir = lambda wildcards: 'outputs/gs_genomes_bakta/' + wildcards.acc
     conda: 'envs/star.yml' 
     threads: 2   
+    resources: 
+        mem_mb = 16000,
+        tmpdir= TMPDIR
     shell:'''
     STAR --runThreadN {threads} --genomeDir {params.genome_dir}      \
-        --readFilesIn {input.reads} --outFilterMultimapNmax 20 
+        --readFilesIn {input.reads} --outFilterMultimapNmax 20 \
         --alignSJDBoverhangMin 1 --outFilterMismatchNmax 999 \
         --outFilterMismatchNoverLmax 0.6 --alignIntronMin 20 \
-        --outSAMattributes NH HI NM MD --outSAMtype BAM      \
-        SortedByCoordinate --outFileNamePrefix {params.out_prefix}
+        --outSAMattributes NH HI NM MD --outSAMtype BAM SortedByCoordinate \
+        --limitBAMsortRAM 1040169341 --outFileNamePrefix {params.out_prefix}
     '''
 
-#rule count_single_end:
+rule count_single_end:
+    input: 
+        bam='outputs/gs_rnaseq_star/{acc}-{sra}Aligned.sortedByCoord.out.bam',
+        gtf="outputs/gs_genomes_bakta/{acc}/{acc}.gtf",
+    output:
+        counts="outputs/gs_rnaseq_featurecounts/{acc}-{sra}_counts.txt",
+        juncs="outputs/gs_rnaseq_featurecounts/{acc}-{sra}_junctions.txt"
+    conda: 'envs/rsubread.yml' 
+    resources: 
+        mem_mb = 8000,
+        tmpdir= TMPDIR
+    threads: 1
+    script: "scripts/featureCounts_se.R"
+      
 
 # not all sequences are paired end; decide later if pe should be benchmarked explicitly
 #rule split_paired_end_reads:
