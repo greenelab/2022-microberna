@@ -591,7 +591,7 @@ rule rnaseq_sample_download:
             if not os.path.exists(params.tmp_base + ".fastq.gz"):
                 shell("wget -O {params.tmp_base}.fastq.gz ftp://{fastq}")
 
-            shell("fastp -i {params.tmp_base}.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout > {output.reads}")
+            shell("fastp -i {params.tmp_base}.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout | gzip > {output.reads}")
 
             # check that the file exists, and if it does, remove raw fastq files
             if os.path.exists(output.reads):
@@ -608,7 +608,7 @@ rule rnaseq_sample_download:
             if not os.path.exists(params.tmp_base + "_2.fastq.gz"):
                 shell("wget -O {params.tmp_base}_2.fastq.gz ftp://{fastq_2}")
 
-            shell("fastp -i {params.tmp_base}_1.fastq.gz -I {params.tmp_base}_2.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout > {output.reads}")
+            shell("fastp -i {params.tmp_base}_1.fastq.gz -I {params.tmp_base}_2.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout | gzip > {output.reads}")
 
             # check that the file exists, and if it does, remove raw fastq files
             if os.path.exists(output.reads):

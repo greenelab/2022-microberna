@@ -28,7 +28,9 @@ GENOME_ACC_TO_SRA = m["genome_acc_to_sra"]
 
 rule all:
     input:
-        expand('outputs/gs_rnaseq_star/{acc_to_sra}Aligned.sortedByCoord.out.bam', acc_to_sra = GENOME_ACC_TO_SRA) 
+        #expand('outputs/gs_rnaseq_star/{acc_to_sra}Aligned.sortedByCoord.out.bam', acc_to_sra = GENOME_ACC_TO_SRA) 
+        expand("outputs/gs_rnaseq_featurecounts/{acc_to_sra}_counts.txt", acc_to_sra = GENOME_ACC_TO_SRA),
+        expand("outputs/gs_rnaseq_featurecounts_pe/{acc_to_sra}_counts.txt", acc_to_sra = GENOME_ACC_TO_SRA)
 
 rule make_genome_info_csv:
     output:
@@ -134,7 +136,7 @@ rule rnaseq_sample_download:
             if not os.path.exists(params.tmp_base + ".fastq.gz"):
                 shell("wget -O {params.tmp_base}.fastq.gz ftp://{fastq}")
 
-            shell("fastp -i {params.tmp_base}.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout > {output.reads}")
+            shell("fastp -i {params.tmp_base}.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout | gzip > {output.reads}")
 
             # check that the file exists, and if it does, remove raw fastq files
             if os.path.exists(output.reads):
@@ -151,7 +153,7 @@ rule rnaseq_sample_download:
             if not os.path.exists(params.tmp_base + "_2.fastq.gz"):
                 shell("wget -O {params.tmp_base}_2.fastq.gz ftp://{fastq_2}")
 
-            shell("fastp -i {params.tmp_base}_1.fastq.gz -I {params.tmp_base}_2.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout > {output.reads}")
+            shell("fastp -i {params.tmp_base}_1.fastq.gz -I {params.tmp_base}_2.fastq.gz --json {output.json} --html {output.html} -R {wildcards.sra} --stdout |gzip > {output.reads}")
 
             # check that the file exists, and if it does, remove raw fastq files
             if os.path.exists(output.reads):
@@ -188,7 +190,7 @@ rule star_map_single_end:
     shell:'''
     STAR --runThreadN {threads} --genomeDir {params.genome_dir}      \
         --readFilesIn {input.reads} --outFilterMultimapNmax 20 \
-        --alignSJDBoverhangMin 1 --outFilterMismatchNmax 999 \
+        --readFilesCommand zcat --alignSJDBoverhangMin 1 --outFilterMismatchNmax 999 \
         --outFilterMismatchNoverLmax 0.6 --alignIntronMin 20 \
         --outSAMattributes NH HI NM MD --outSAMtype BAM SortedByCoordinate \
         --limitBAMsortRAM 1040169341 --outFileNamePrefix {params.out_prefix}
@@ -209,7 +211,54 @@ rule count_single_end:
     script: "scripts/featureCounts_se.R"
       
 
-# not all sequences are paired end; decide later if pe should be benchmarked explicitly
-#rule split_paired_end_reads:
-#rule star_map_paired_end:
-#rule count_paired_end:
+rule split_interleaved_reads_to_pe:
+    input: "outputs/rnaseq_fastp/{sra}.fq.gz",
+    output: 
+        O = "outputs/rnaseq_fastp_split/{sra}_orphan.fq.gz",
+        R1 = "outputs/rnaseq_fastp_split/{sra}_1.fq.gz",
+        R2 = "outputs/rnaseq_fastp_split/{sra}_2.fq.gz"
+    conda: "envs/khmer.yml"
+    threads: 1
+    resources:
+        mem_mb=4000
+    shell:'''
+    split-paired-reads.py -0 {output.O} -1 {output.R1} -2 {output.R2} --gzip {input}    
+    '''
+
+rule star_map_paired_end:
+    input:
+        reads_1 = "outputs/rnaseq_fastp_split/{sra}_1.fq.gz",
+        reads_2 = "outputs/rnaseq_fastp_split/{sra}_2.fq.gz",
+        genome_index = 'outputs/gs_genomes_bakta/{acc}/SAindex'
+    output: 'outputs/gs_rnaseq_star_pe/{acc}-{sra}Aligned.sortedByCoord.out.bam' 
+    params: 
+        out_prefix = lambda wildcards: 'outputs/gs_rnaseq_star_pe/' + wildcards.acc + "-" + wildcards.sra,
+        genome_dir = lambda wildcards: 'outputs/gs_genomes_bakta/' + wildcards.acc
+    conda: 'envs/star.yml' 
+    threads: 2   
+    resources: 
+        mem_mb = 16000,
+        tmpdir= TMPDIR
+    shell:'''
+    STAR --runThreadN {threads} --genomeDir {params.genome_dir}      \
+        --readFilesIn {input.reads_1} {input.reads_2} --outFilterMultimapNmax 20 \
+        --readFilesCommand zcat --alignSJDBoverhangMin 1 --outFilterMismatchNmax 999 \
+        --outFilterMismatchNoverLmax 0.6 --alignIntronMin 20 \
+        --outSAMattributes NH HI NM MD --outSAMtype BAM SortedByCoordinate \
+        --limitBAMsortRAM 1040169341 --outFileNamePrefix {params.out_prefix}
+    '''
+
+rule count_paired_end:
+    input: 
+        bam='outputs/gs_rnaseq_star_pe/{acc}-{sra}Aligned.sortedByCoord.out.bam',
+        gtf="outputs/gs_genomes_bakta/{acc}/{acc}.gtf",
+    output:
+        counts="outputs/gs_rnaseq_featurecounts_pe/{acc}-{sra}_counts.txt",
+        juncs="outputs/gs_rnaseq_featurecounts_pe/{acc}-{sra}_junctions.txt"
+    conda: 'envs/rsubread.yml' 
+    resources: 
+        mem_mb = 8000,
+        tmpdir= TMPDIR
+    threads: 1
+    script: "scripts/featureCounts_pe.R"
+      
