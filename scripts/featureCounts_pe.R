@@ -38,7 +38,7 @@ counts <-featureCounts(files=snakemake@input[['bam']],
                        genome=NULL,
                        
                        # parameters specific to paired end reads
-                       isPairedEnd=FALSE,
+                       isPairedEnd=TRUE,
                        requireBothEndsMapped=FALSE,
                        checkFragLength=FALSE,
                        minFragLength=20,
