@@ -4,12 +4,11 @@ import urllib.request
 import pandas as pd
 
 m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
-SRA = m['experiment_accession']
+SRA = list(m['experiment_accession'])
 
 TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
-#GTDB_SPECIES = ['s__Pseudomonas_aeruginosa']
-#GTDB_SPECIES = ['s__Bacillus_pumilus']
-GTDB_SPECIES = ['s__Faecalibacterium_prausnitzii_C']
+#GTDB_SPECIES = ['s__Faecalibacterium_prausnitzii_C']
+
 class Checkpoint_RnaseqToReference:
     """
     Define a class a la genome-grist to simplify file specification
@@ -17,10 +16,12 @@ class Checkpoint_RnaseqToReference:
     is documented at this url:
     http://ivory.idyll.org/blog/2021-snakemake-checkpoints.html
     """
-    def __init__(self, pattern):
+    def __init__(self, pattern, sra_samples):
         self.pattern = pattern
+        self.sra_samples = sra_samples
 
-    def get_acc_dbs(self, sra):
+
+    def get_sra_to_species(self, sra):
         sra_to_ref_csv = f'outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv'
         assert os.path.exists(sra_to_ref_csv)
 
@@ -29,22 +30,53 @@ class Checkpoint_RnaseqToReference:
         with open(sra_to_ref_csv, 'rt') as fp:
            r = csv.DictReader(fp)
            for row in r:
-               sra_to_ref = row['sra_to_ref_species']
+               sra_to_ref = row['species_no_space']
+               break            # maybe assert there is only one line?
 
         return sra_to_ref
+
 
     def __call__(self, w):
         global checkpoints
 
         # wait for the results of 'query_to_species_db';
         # this will trigger exception until that rule has been run.
-        checkpoints.rnaseq_sample_select_best_species_reference.get(**w)
+        # look at do_sample in genome_grist Snakefile for cleaner
+
+        # this will wait for all SRA samples to be done... which is possibly
+        # unnecessary...
+        for sra in self.sra_samples:
+            d = dict(sra=sra)
+            ww = snakemake.io.Wildcards(fromdict=d)
+
+            checkpoints.rnaseq_sample_select_best_species_reference.get(**ww)
 
         # parse accessions in gather output file
-        ref_to_sra_res = self.rnaseq_sample_select_best_species_reference(w.sra)
+        #ref_to_sra_res = self.get_sra_to_species(w.sra)
 
-        p = expand(self.pattern, gtdb_species_to_sra=ref_to_sra_res, **w)
-        return p
+        # what you want here is essentially a double for loop -
+        # for each sra,
+        #    get the species that matches to that SRA
+        #        and then shove that into the pattern
+        results = []
+        for sra in self.sra_samples:
+            found = False
+            for p in self.pattern:
+                if sra in p:
+                    assert not found
+                    # this is the one and only element of the pattern list
+                    # where we are going to put this 'gtdb_species' into the
+                    # pattern.
+                    gtdb_species = self.get_sra_to_species(sra)
+                    p = expand(p, gtdb_species=gtdb_species)
+                    results.append(p)
+                    found = True
+        #p = expand(self.pattern, gtdb_species=ref_to_sra_res, **w)
+
+        #print('ZZZ', results)
+        
+        results = sum(results, []) # turn list of lists into a list of character strings
+        return results
 
 
 class Checkpoint_GrabAccessions:
@@ -91,10 +123,10 @@ rule all:
         # generate pangenome and annotate with eggnog
         #expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES),
         # generate pantranscriptome and index it with salmon
-        expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
+        #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
         # gather RNAseq sample
         #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
-        #Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{sra}/{{gtdb_species_to_sra}}_quant/quant.sf", sra = SRA))
+        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}-{sra}_quant/quant.sf", sra = SRA), SRA)
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -277,7 +309,7 @@ def checkpoint_charcoal_decontaminate_genomes1(wildcards):
     return file_names
 
 rule cat_annotated_sequences:
-    input: checkpoint_charcoal_decontaminate_genomes1
+    input: ancient(checkpoint_charcoal_decontaminate_genomes1)
     output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
     threads: 1
     resources: 
@@ -314,7 +346,7 @@ def checkpoint_charcoal_decontaminate_genomes2(wildcards):
     return file_names
 
 rule roary_determine_pangenome:
-    input: checkpoint_charcoal_decontaminate_genomes2,
+    input: ancient(checkpoint_charcoal_decontaminate_genomes2),
     output: "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa"
     conda: 'envs/roary.yml'
     resources:
@@ -457,7 +489,7 @@ def checkpoint_charcoal_decontaminate_genomes3(wildcards):
     return file_names
 
 rule cat_intergenic_sequences:
-    input: checkpoint_charcoal_decontaminate_genomes3
+    input: ancient(checkpoint_charcoal_decontaminate_genomes3)
     output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
     threads: 1
     resources: 
@@ -514,8 +546,8 @@ rule combine_pangenome_and_intergenic_sequences:
 
 rule index_transcriptome:
     input: 
-        seqs="outputs/gtdb_genomes_salmon_ref/{gtdb_species}.fa",
-        decoys="outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt"
+        seqs=ancient("outputs/gtdb_genomes_salmon_ref/{gtdb_species}.fa"),
+        decoys=ancient("outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt")
     output: "outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"
     threads: 1
     params: index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species
@@ -650,12 +682,12 @@ checkpoint rnaseq_sample_select_best_species_reference:
 rule rnaseq_quantify_against_species_pangenome:
     input: 
         sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv",
-        index = "outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json",
+        index = ancient("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"),
         reads = "outputs/rnaseq_fastp/{sra}.fq.gz"
-    output: "outputs/rnaseq_salmon/{sra}/{gtdb_species}-{sra}_quant/quant.sf"
+    output: "outputs/rnaseq_salmon/{gtdb_species}-{sra}_quant/quant.sf"
     params: 
         index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
-        out_dir = lambda wildcards: "outputs/rnaseq_salmon/{sra}/{gtdb_species_to_sra}_quant" 
+        out_dir = lambda wildcards: "outputs/rnaseq_salmon/" + wildcards.gtdb_species + "-" + wildcards.sra + "_quant" 
     conda: "envs/salmon.yml"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
