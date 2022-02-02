@@ -331,7 +331,7 @@ rule cluster_annotated_sequences:
     conda: "envs/cdhit.yml"
     benchmark:"benchmarks/cluster_annotated_{gtdb_species}.txt"
     shell:'''
-    cd-hit-est -c .95 -i {input} -o {output}
+    cd-hit-est -c .95 -d 0 -i {input} -o {output}
     '''
 
 #########################################################
