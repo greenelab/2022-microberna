@@ -126,7 +126,7 @@ rule all:
         #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
         # gather RNAseq sample
         #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
-        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}-{sra}_quant/quant.sf", sra = SRA), SRA)
+        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}/{sra}_quant/quant.sf", sra = SRA), SRA)
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -684,10 +684,10 @@ rule rnaseq_quantify_against_species_pangenome:
         sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv",
         index = ancient("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"),
         reads = "outputs/rnaseq_fastp/{sra}.fq.gz"
-    output: "outputs/rnaseq_salmon/{gtdb_species}-{sra}_quant/quant.sf"
+    output: "outputs/rnaseq_salmon/{gtdb_species}/{sra}_quant/quant.sf"
     params: 
         index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
-        out_dir = lambda wildcards: "outputs/rnaseq_salmon/" + wildcards.gtdb_species + "-" + wildcards.sra + "_quant" 
+        out_dir = lambda wildcards: "outputs/rnaseq_salmon/" + wildcards.gtdb_species + "/" + wildcards.sra + "_quant" 
     conda: "envs/salmon.yml"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
@@ -695,5 +695,5 @@ rule rnaseq_quantify_against_species_pangenome:
     threads: 1
     benchmark: "benchmarks/rnaseq/salmon_quantify_{gtdb_species}-{sra}.txt"
     shell:'''
-    salmon quant -i {params.index_dir} -l A -r {input.reads} -o {params.out_dir} --validateMappings
+    salmon quant -i {params.index_dir} -l A -r {input.reads} -o {params.out_dir} --validateMappings --writeUnmappedNames
     '''
