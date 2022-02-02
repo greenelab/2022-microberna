@@ -1,16 +1,22 @@
 # DYNAMIC APPROACH
-# download and qc reads
-# run gather
-# for samples that have a single gather reference, select that reference, download the genome, and index
+# + download and qc reads
+# + run gather
+# + for samples that have a single gather reference, select that reference, download the genome, and index
 
 
-# NON-DYNAMIC APPROACH
-# define list of known single-reference samples (e.g. Fpc -- all are dominantly the same strain)
-# use alpha ksize approach to bind and limit wildcards (can probably use pandas to make these lists from a csv file that records SRA number and reference genome ID)
-# download reference, reference gff file, and index with star
-# download and qc reads
-# map with star
-# count with e.g. fadu
+# NON-DYNAMIC APPROACH (implemented for now, I think this is probably sufficient)
+# + define list of samples
+#    + Use some samples that contain sequences that match a single reference genome (see gather results from other snakefiles)
+#    + Use some samples that contain sequences from multiple reference genomes (independent of contamination)
+# + in csv file that defines samples, include a column with the best reference genome (accession) that was detected by gather.
+#   this is a manual step, but since it's only being used for benchmarking, I think it's fine for now.
+#   I could do the dynamic approach outlined above, but I would rather look at the gather results first to identify good test cases. 
+# + bind the SRA sample accessions with the genome accessions, creating a new variable that can be used to limit combinations of the
+#   wildcards.
+# + download reference, reference gff file, and index with star
+# + download and qc reads
+# + map with star
+# + count with e.g. featurecounts, allowing spanning reads and fractional counts
 
 import pandas as pd
 import re
@@ -261,4 +267,3 @@ rule count_paired_end:
         tmpdir= TMPDIR
     threads: 1
     script: "scripts/featureCounts_pe.R"
-      
