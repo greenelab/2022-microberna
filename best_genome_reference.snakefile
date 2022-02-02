@@ -7,15 +7,11 @@ from Bio.Seq import Seq
 #import pyrodigal
 import pandas as pd
 
-TMPDIR = "/tmp"
+TMPDIR = "/scratch/tereiter"
 
-m = pd.read_csv("inputs/toy_metadata/toy_pa.tsv", sep = "\t", header = 0)
-SRA = m.sort_values(by='read_count')['experiment_accession']
-
-# tmp PA samples:
-# PAO1: ERX3558803, SRX540112
-# clinical isolates: SRX396878, labelled B271; SRX5123759
-# PA14: SRX589549, SRX4624095
+m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
+SRA = m['experiment_accession']
+KSIZE = [21, 31]
 
 # TODO: update file/checkpoint names
 # TODO: switch out column names
@@ -61,7 +57,8 @@ class Checkpoint_RnaseqToReference:
 
 rule all:
     input:
-        expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA)
+        expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k{ksize}.csv", sra = SRA, ksize = KSIZE),
+        #expand("outputs/rnaseq_sourmash_search/{sra}_gtdb_k{ksize}_max_containment.csv", sra = SRA, ksize = KSIZE)
 
 rule rnaseq_sample_download:
     """
@@ -78,7 +75,7 @@ rule rnaseq_sample_download:
     params: tmp_base = lambda wildcards: "inputs/tmp_raw/" + wildcards.sra
     threads: 1
     resources:
-        mem_mb=1000
+        mem_mb=8000
     run:
         row = m.loc[m['experiment_accession'] == wildcards.sra]
         fastqs = row['fastq_ftp'].values[0]
@@ -122,12 +119,13 @@ rule rnaseq_sample_sourmash_sketch:
         mem_mb = lambda wildcards, attempt: attempt * 2000 ,
         tmpdir= TMPDIR
     threads: 1
+    benchmark: "benchmarks/rnaseq/sourmash_sketch_{sra}.txt"
     conda: "envs/sourmash.yml"
     shell:'''
-    sourmash sketch dna -p k=21,k=31,scaled=2000 -o {output} --name {wildcards.sra} {input}
+    sourmash sketch dna -p k=21,k=31,scaled=1000,abund -o {output} --name {wildcards.sra} {input}
     ''' 
 
-rule sourmash_download_gtdb_database:
+rule sourmash_download_gtdb_database_k31:
     output: "inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip" 
     resources:
         mem_mb = 1000,
@@ -135,6 +133,16 @@ rule sourmash_download_gtdb_database:
     threads: 1
     shell:'''
     wget -O {output} https://osf.io/94mzh/download
+    '''
+
+rule sourmash_download_gtdb_database_k21:
+    output: "inputs/sourmash_dbs/gtdb-rs202.genomic.k21.zip" 
+    resources:
+        mem_mb = 1000,
+        tmpdir = TMPDIR
+    threads: 1
+    shell:'''
+    wget -O {output} https://osf.io/vgex4/download
     '''
 
 rule sourmash_download_human_sig:
@@ -150,16 +158,32 @@ rule sourmash_download_human_sig:
 rule rnaseq_sample_sourmash_gather_against_gtdb:
     input: 
         sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
-        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
+        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k{ksize}.zip",
         human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
-    output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
+    output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k{ksize}.csv"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
         tmpdir= TMPDIR
     threads: 1
+    benchmark: "benchmarks/rnaseq/sourmash_gather_k{ksize}_{sra}.txt"
     conda: "envs/sourmash.yml"
     shell:'''
-    sourmash gather -o {output} --scaled 2000 -k 31 {input.sig} {input.db} {input.human}
+    sourmash gather -o {output} --scaled 2000 -k {wildcards.ksize} {input.sig} {input.db} {input.human}
+    '''
+
+rule rnaseq_sample_sourmash_search_against_gtdb:
+    input: 
+        sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
+        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k{ksize}.zip",
+    output: "outputs/rnaseq_sourmash_search/{sra}_gtdb_k{ksize}_max_containment.csv"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 16000 ,
+        tmpdir= TMPDIR
+    threads: 1
+    benchmark: "benchmarks/rnaseq/sourmash_search_k{ksize}_{sra}.txt"
+    conda: "envs/sourmash.yml"
+    shell:'''
+    sourmash search --max-containment -o {output} --scaled 2000 -k {wildcards.ksize} {input.sig} {input.db} 
     '''
 
 checkpoint rnaseq_sample_select_best_genome_reference:
