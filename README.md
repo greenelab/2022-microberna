@@ -26,7 +26,7 @@ snakemake -s best_genome_reference.snakefile -j 16 --use-conda --rerun-incomplet
 ## Background and goals
 
 The goal of this repository is to generate an automated, lightweight, and generalized pipeline to create a compendium of isolate bacterial and archaeal RNA-seq data.
-In model organisms like human and mouse, compendia like [recount2](https://www.nature.com/articles/nbt.3838) (and [recount3](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-021-02533-6)), [GTEx](https://gtexportal.org/home/), and [The Cancer Genome Atlas (TCGA)](https://www.cancer.gov/about-nci/organization/ccg/research/structural-genomics/tcga) have been rich community resources that have allowed researchers to interface and draw insights from gene expression data. 
+In model organisms like human and mouse, compendia like [recount2](https://www.nature.com/articles/nbt.3838) (and [recount3](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-021-02533-6)), [GTEx](https://gtexportal.org/home/), and [The Cancer Genome Atlas (TCGA)](https://www.cancer.gov/about-nci/organization/ccg/research/structural-genomics/tcga) have been rich community resources that have allowed researchers to interface with and draw insights from gene expression data. 
 Standard pre-processing enables integrated analysis across data sets derived from different studies, tissues, or organisms.
 This repository aims to produce a compendium that integrates the thousands of publicly available isolate bacterial and archaeal RNA-seq data via uniform pre-processing. 
 
@@ -46,7 +46,7 @@ While the exact output formats will become more clear as the pre-processing pipe
 
 ## Summary of RNA-seq samples
 
-As of January 2022, there were 54,445^1^ publicly available bacterial and archaeal RNA seq samples from 5,751^2^ experiments on the Sequence Read Archive (SRA).
+As of January 2022, there were 54,445<sup>1</sup> publicly available bacterial and archaeal RNA seq samples from 5,751<sup>2</sup> experiments on the Sequence Read Archive (SRA).
 These samples were attributable to 1,722 distinct user-supplied organism names.
 The median number of times an organism name was observed was 7.
 
@@ -60,16 +60,20 @@ The majority of samples were Bacterial (50,182 Bacterial, 989 Archaeal).
 A major challenge associated with building this compendium is the selection of reference sequences and the integration of annotations between reference sequences.
 Here, we focus on generating a reference transcriptome, as we have elected to perform transcript quantification using Salmon because it is lightweight and scales to thousands of samples.
 
-The reference transcriptome is a quintessential piece for transcriptome quantification.
-Salmon uses exact k-mer matching between reads in a sample and transcripts in a reference transcriptome to quantify transcript abundances.
-(Add notes from Lisa's killifish project about decreasing mapping rate with increasing phylogenetic distance from reference.)
+The reference transcriptome is an important component of transcriptome quantification.
+If the reference does not contain all of the sequences that are contained within the sample, quantification will be incomplete (see [here](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0180904) and [here](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0145861)).
+This is nicely illustrated in this figure by [Lisa K. Johnson](https://johnsolk.github.io/blog/) (original notebook [here](https://github.com/WhiteheadLab/RNAseq_17killifish/blob/master/notebooks/alignment_rates_plot.ipynb)). 
+Johnson demonstrates that has Jaccard similarity decreases between an RNA-seq sample and the reference used to quantify it, mapping rates decrease. 
+As such, it is important to have both a complete (all genes present) and similar (high percent identity) reference transcriptome with regards to each sample.
+
+![](https://i.imgur.com/nSFIKHO.png)
 
 Given the importance of having a representative and accurate transcriptome, one goal of this repository is to determine the best approach for reference transcriptome generation for any publicly available bacterial or archaeal RNA-seq sample.
 Thus far, we have identified two approaches for reference transcriptome generation that we plan to test: a *single pangenome* approach and a *best genome* approach. 
 
 The *single pangenome* approach will generate a single pangenome using all "reference" genomes for a species.
 We have selected GTDB rs202 as our reference genome database, as it encompasses some unculturable organisms (unlike RefSeq), but is still quality controlled more extensively than e.g. GenBank. 
-The genes within this pangenome will be used to create a reference transcriptome that will be used to quantify all RNA-seq libraries from this species.
+Annotated features within this pangenome (CDS, tRNA, rRNA, tmRNA, ncRNA) will be used to create a reference transcriptome that will be used to quantify all RNA-seq libraries from this species.
 We suspect that this approach might be successful at capturing microbes that have mixes of genes (e.g. accessory elements) which have not previously be observed in conjunction in a single genome before; a [similar method](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0145861) was successful in the analysis of RNA-seq samples from *Staphylococcus aureus* strains without reference genomes 
 
 The *best genome* approach will select the best genome and use it as the reference transcriptome for each RNA-seq library.
@@ -98,9 +102,42 @@ Challenges with *best genome* approach:
 
 ### Comparison of reference transcriptome generation methods
 
-### Toy compendium of *Pseudomonas aeruginosa*
+### Toy compendia
 
-Recently, compendia of *P. aeruginosa* were developed by mapping RNA-seq samples against PAO1 or PA14 references. 
+
+#### *Faecalibacterium prausnitzii* A2-165
+
+Three studies representing 29 samples have been submitted to the SRA for *F. prausnitzii* A2-165. 
+While some of the samples are contaminated with human or other organisms, only strain A2-165 was detected among *F. prausnitzii* reads.
+These RNA-seq samples are a good test case to determine whether the pangenome approach works as well as the best genome approach.
+We selected three samples, each from a different study, and used these to investigate this question.
+
+| SRA identifier | Annotated strain |
+|----------------|------------------|
+| ERX4307280     | A2-165  |
+| SRX10245671    | A2-165  |
+| SRX3847835     | A2-165  |
+
+See results [here](notebooks/20220201_benchmark_salmon_vs_star_one_reference.ipynb)
+
+#### *Bacillus* 
+
+Five studies representing 21 samples have been submitted to the SRA and labelled as *Bacillus pumilus*. 
+We selected one sample from each of these studies to test. 
+Four of the samples were annotated by the submitters as *B. pumilus*, illustrating the necessity of determining the reference transcriptome by sequence comparison against a database. 
+The difference in both the total number of *Bacillus* strains detected, as well as the identity of those strains (not shown), suggests that each transcriptome captures a slightly different strain, and that none of those strains are not represented in a single reference genome.
+The mix of strains present makes these samples a good test case to determine whether the pangenome approach allows more reads to be recovered over the best genome approach.
+
+| SRA identifier | Top annotated strain | Total *Bacillus* strains annotated |
+|----------------|------------------|
+| SRX4378884     | Bacillus altitudinis strain=BA06 | 5 |
+| SRX5179263     | Bacillus altitudinis strain=BA06 | 6 | 
+| SRX5678458     | Bacillus altitudinis strain=BA06 | 8 |
+| SRX7088415     | Bacillus altitudinis strain=BA06 | 5 | 
+
+#### *Pseudomonas aerruginoas*
+
+Recently, compendia of *P. aeruginosa* were developed by mapping RNA-seq samples against PAO1 or PA14 references using salmon. 
 We identified 6 samples analyzed by this study to use as test cases for this compendium.
 
 | SRA identifier | Annotated strain |
@@ -114,19 +151,14 @@ We identified 6 samples analyzed by this study to use as test cases for this com
 
 *P. aeruginosa* is a good test case for this pipeline because:
 1. It has many reference genomes (5,211 in GTDB), so we can test:
-  a. How accurately we predict the correct reference genome
-  b. containment of the RNA-seq sample in a single or many reference genomes 
+    a. How accurately we predict the correct reference genome
+    b. containment of the RNA-seq sample in a single or many reference genomes 
 2. PAO1 and PA14 are important community reference strains, so they'll be good test cases for integrating annotations at various levels.
-  a. Do we collapse any important annotations by using ortholog-level annotations?
-  b. Can we simultaneously take advantage of existing annotations and ortholog annotations?
+    a. Do we collapse any important annotations by using ortholog-level annotations?
+    b. Can we simultaneously take advantage of existing annotations and ortholog annotations?
 3. The compendia referenced above have some nice controls, and we may be able to take advantage of some of those controls instead of recreating our own (e.g. count estimation with mapping vs. quasi-mapping).
 
-## Additional toy compendia
-
-To be determined -- I would like to test some RNA seq samples that don't have as many reference genome sequences as *P. aeruginosa*. 
-I have roary pangenomes for ~23 GTDB species already calculated from a previous project, so I may borrow some of those (need to check if I decontaminated the genomes with charcoal prior to calculating them).
-
-### Need to evaluate the impact of Salmon k-mer size on mapping rates and accuracy
+### Impact of Salmon k-mer size on mapping rates and accuracy
 
 Salmon in part uses k-mers in RNA-seq reads and transcripts in the reference transcriptome to quantify transcript abundance in a sample. 
 One user-controllable parameter is the minimum k-size for an acceptable match.
@@ -152,6 +184,8 @@ It may be prudent to require read length > 31 base pairs after trimming for incl
 
 It would be great if there is a universal best k-size to use.
 
+I will probably evaluate this after I have gather results for a few species. An ideal data set would have varied jaccard similarity relative to the reference pangenome (or other reference transcriptome used). 
+
 ## Potentially interesting use cases for such a compendia
 
 **General ideas**
@@ -169,5 +203,5 @@ It would be great if there is a universal best k-size to use.
 + Identify horizontally transferred genes that are shared (and expressed) between species
 
 ## Footnotes
-^1^Search criteria on the SRA ("Bacteria"[Organism] OR "Archaea"[Organism]) AND ("biomol rna"[Properties] AND "platform illumina"[Properties] AND "filetype fastq"[Properties]), and additionally filtered on Library Source "Transcriptomic", Library Strategy "RNA-Seq" or "OTHER", and Library Selection "cDNA", "other", "RANDOM", "unspecified", "RT-PCR", "RANDOM PCR", "PCR"  
-^2^Measured as distinct study accessions
+<sup>1</sup>Search criteria on the SRA ("Bacteria"[Organism] OR "Archaea"[Organism]) AND ("biomol rna"[Properties] AND "platform illumina"[Properties] AND "filetype fastq"[Properties]), and additionally filtered on Library Source "Transcriptomic", Library Strategy "RNA-Seq" or "OTHER", and Library Selection "cDNA", "other", "RANDOM", "unspecified", "RT-PCR", "RANDOM PCR", "PCR"  
+<sup>2</sup>Measured as distinct study accessions
