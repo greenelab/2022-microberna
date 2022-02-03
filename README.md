@@ -129,7 +129,7 @@ The difference in both the total number of *Bacillus* strains detected, as well 
 The mix of strains present makes these samples a good test case to determine whether the pangenome approach allows more reads to be recovered over the best genome approach.
 
 | SRA identifier | Top annotated strain | Total *Bacillus* strains annotated |
-|----------------|------------------|
+|----------------|------------------|------------------------|
 | SRX4378884     | Bacillus altitudinis strain=BA06 | 5 |
 | SRX5179263     | Bacillus altitudinis strain=BA06 | 6 | 
 | SRX5678458     | Bacillus altitudinis strain=BA06 | 8 |
