@@ -135,7 +135,7 @@ The mix of strains present makes these samples a good test case to determine whe
 | SRX5678458     | Bacillus altitudinis strain=BA06 | 8 |
 | SRX7088415     | Bacillus altitudinis strain=BA06 | 5 | 
 
-#### *Pseudomonas aerruginoas*
+#### *Pseudomonas aeruginosa*
 
 Recently, compendia of *P. aeruginosa* were developed by mapping RNA-seq samples against PAO1 or PA14 references using salmon. 
 We identified 6 samples analyzed by this study to use as test cases for this compendium.
