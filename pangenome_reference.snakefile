@@ -3,7 +3,7 @@ import sys
 import urllib.request
 import pandas as pd
 
-m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
+m = pd.read_csv("inputs/toy_metadata/toy_bp.tsv", sep = "\t", header = 0)
 SRA = list(m['experiment_accession'])
 
 TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
