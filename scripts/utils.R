@@ -70,6 +70,9 @@ read_gff <- function(filepath){
   return(gff_parsed)
 }
 
+read_gather <- function(path){
+  gather <- read_csv(path, col_types = "dddddlllcccddddcccd")
+}
 
 # add an R2 and eq to a linear regression ---------------------------------
 
