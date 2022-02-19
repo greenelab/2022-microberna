@@ -126,7 +126,7 @@ rule all:
         #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
         # gather RNAseq sample
         #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
-        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}/{sra}_quant/quant.sf", sra = SRA), SRA)
+        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}/{sra}_quant/quant.sf", sra = SRA), SRA),
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -334,6 +334,54 @@ rule cluster_annotated_sequences:
     cd-hit-est -c .95 -d 0 -i {input} -o {output}
     '''
 
+rule translate_clustered_sequences_for_annotations:
+    input: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa" 
+    output: 'outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.faa'
+    conda: 'envs/emboss.yml'
+    resources:
+        mem_mb = 16000,
+        tmpdir = TMPDIR
+    benchmark: "benchmarks/transeq_{gtdb_species}.txt"
+    threads: 2
+    shell:'''
+    transeq {input} {output}
+    '''
+
+rule eggnog_download_db:
+    output: "inputs/eggnog_db/eggnog.db"
+    threads: 1   
+    resources: 
+        mem_mb = 4000,
+        tmpdir=TMPDIR
+    params: datadir = "inputs/eggnog_db"
+    conda: "envs/eggnog.yml"
+    shell:'''
+    download_eggnog_data.py -H -d 2 -y --data_dir {params.datadir}
+    '''
+
+rule eggnog_annotate_clustered_sequences:
+    input: 
+        faa = "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.faa",
+        db = 'inputs/eggnog_db/eggnog.db'
+    output: "outputs/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations"
+    conda: 'envs/eggnog.yml'
+    resources:
+        mem_mb = 32000,
+        tmpdir=TMPDIR
+    benchmark: "benchmarks/eggnog_{gtdb_species}.txt"
+    threads: 8
+    params: 
+        outdir = lambda wildcards: "outputs/gtdb_genomes_annotated_comb_eggnog/" + wildcards.gtdb_species,
+        dbdir = "inputs/eggnog_db"
+    shell:'''
+    mkdir -p tmp/
+    emapper.py --cpu {threads} -i {input.faa} --output {wildcards.gtdb_species} \
+       --output_dir {params.outdir} -m hmmer -d none --tax_scope auto \
+       --go_evidence non-electronic --target_orthologs all --seed_ortholog_evalue 0.001 \
+       --seed_ortholog_score 60 --override --temp_dir tmp/ \
+       -d 2 --data_dir {params.dbdir}
+    '''
+
 #########################################################
 ## generate pangenome
 #########################################################
@@ -358,54 +406,6 @@ rule roary_determine_pangenome:
         outdir = lambda wildcards: 'outputs/gtdb_genomes_roary/' + wildcards.gtdb_species
     shell:'''
     roary -r -e -n -f {params.outdir} -p {threads} -z {input}
-    '''
-
-rule translate_pangenome_for_annotations:
-    input: 'outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa' 
-    output: 'outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.faa' 
-    conda: 'envs/emboss.yml'
-    resources:
-        mem_mb = 16000,
-        tmpdir = TMPDIR
-    benchmark: "benchmarks/transeq_{gtdb_species}.txt"
-    threads: 2
-    shell:'''
-    transeq {input} {output}
-    '''
-
-rule eggnog_download_db:
-    output: "inputs/eggnog_db/eggnog.db"
-    threads: 1   
-    resources: 
-        mem_mb = 4000,
-        tmpdir=TMPDIR
-    params: datadir = "inputs/eggnog_db"
-    conda: "envs/eggnog.yml"
-    shell:'''
-    download_eggnog_data.py -H -d 2 -y --data_dir {params.datadir}
-    '''
-
-rule eggnog_annotate_pangenome:
-    input: 
-        faa = "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.faa",
-        db = 'inputs/eggnog_db/eggnog.db'
-    output: "outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations"
-    conda: 'envs/eggnog.yml'
-    resources:
-        mem_mb = 32000,
-        tmpdir=TMPDIR
-    benchmark: "benchmarks/eggnog_{gtdb_species}.txt"
-    threads: 8
-    params: 
-        outdir = "outputs/gtdb_genomes_roary_eggnog/",
-        dbdir = "inputs/eggnog_db"
-    shell:'''
-    mkdir -p tmp/
-    emapper.py --cpu {threads} -i {input.faa} --output {wildcards.gtdb_species} \
-       --output_dir {params.outdir} -m hmmer -d none --tax_scope auto \
-       --go_evidence non-electronic --target_orthologs all --seed_ortholog_evalue 0.001 \
-       --seed_ortholog_score 60 --override --temp_dir tmp/ \
-       -d 2 --data_dir {params.dbdir}
     '''
 
 
@@ -683,7 +683,8 @@ rule rnaseq_quantify_against_species_pangenome:
     input: 
         sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv",
         index = ancient("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"),
-        reads = "outputs/rnaseq_fastp/{sra}.fq.gz"
+        reads = "outputs/rnaseq_fastp/{sra}.fq.gz",
+        eggnog = "outputs/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations" # not actually needed here, but trick snakemake into making these annots
     output: "outputs/rnaseq_salmon/{gtdb_species}/{sra}_quant/quant.sf"
     params: 
         index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
