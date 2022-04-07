@@ -144,6 +144,7 @@ rule download_gtdb_lineages:
 # The outputs of this rule are used by the class Checkpoint_GrabAccessions.
 # The new wildcard, acc, is encoded in the "ident" column of the output
 # file "accessions". 
+# TR note: charcoal_lineages may be an unnecessary output file now that charcoal decontam is already done.
 checkpoint grab_species_accessions:
     input: gtdb_lineages = "inputs/gtdb-rs202.taxonomy.v2.csv"
     output: 
@@ -205,68 +206,6 @@ rule sourmash_download_gtdb_database:
     wget -O {output} https://osf.io/94mzh/download
     '''
 
-rule charcoal_generate_genome_list:
-    input:  ancient(Checkpoint_GrabAccessions("inputs/gtdb_genomes/{{gtdb_species}}/{acc}_genomic.fna.gz"))
-    output: "outputs/charcoal_conf/charcoal_{gtdb_species}.genome-list.txt"
-    threads: 1
-    resources:
-        mem_mb=500,
-        tmpdir = TMPDIR
-    params: genome_dir = lambda wildcards: "inputs/gtdb_genomes/" + wildcards.gtdb_species
-    shell:'''
-    ls {params.genome_dir}/*fna.gz | xargs -n 1 basename > {output} 
-    '''
-
-rule charcoal_generate_conf_file:
-    input:
-        genomes = ancient(Checkpoint_GrabAccessions("inputs/gtdb_genomes/{{gtdb_species}}/{acc}_genomic.fna.gz")),
-        genome_list = "outputs/charcoal_conf/charcoal_{gtdb_species}.genome-list.txt",
-        charcoal_lineages = "outputs/gtdb_genomes_by_species/{gtdb_species}_charcoal_lineages.csv",
-        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
-        db_lineages="inputs/gtdb-rs202.taxonomy.v2.csv"
-    output:
-        conf = "conf/charcoal-conf-{gtdb_species}.yml",
-    params: 
-        genome_dir = lambda wildcards: "inputs/gtdb_genomes/" + wildcards.gtdb_species,
-        output_dir = lambda wildcards: "outputs/gtdb_genomes_charcoal/" + wildcards.gtdb_species 
-    resources:
-        mem_mb = 500,
-        tmpdir = TMPDIR
-    threads: 1
-    run:
-        with open(output.conf, 'wt') as fp:
-            print(f"""\
-output_dir: {params.output_dir}
-genome_list: {input.genome_list}
-genome_dir: {params.genome_dir}
-provided_lineages: {input.charcoal_lineages}
-match_rank: order
-gather_db:
- - {input.db} 
-lineages_csv: {input.db_lineages} 
-strict: 1
-""", file=fp)
-
-
-checkpoint charcoal_decontaminate_genomes:
-    input:
-        genomes = ancient(Checkpoint_GrabAccessions("inputs/gtdb_genomes/{{gtdb_species}}/{acc}_genomic.fna.gz")),
-        genome_list = "outputs/charcoal_conf/charcoal_{gtdb_species}.genome-list.txt",
-        conf = "conf/charcoal-conf-{gtdb_species}.yml",
-        charcoal_lineages = "outputs/gtdb_genomes_by_species/{gtdb_species}_charcoal_lineages.csv",
-        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
-        db_lineages="inputs/gtdb-rs202.taxonomy.v2.csv"
-    output: directory("outputs/gtdb_genomes_charcoal/{gtdb_species}/"),
-    resources:
-        mem_mb = 275000,
-        tmpdir = TMPDIR
-    benchmark: "benchmarks/charcoal_{gtdb_species}.txt"
-    threads: 32
-    conda: "envs/charcoal.yml"
-    shell:'''
-    python -m charcoal run {input.conf} -j {threads} clean --nolock --latency-wait 15 --rerun-incomplete
-    '''
-
 rule bakta_download_db:
     output: "inputs/bakta_db/db/version.json"
     threads: 1
@@ -278,9 +217,8 @@ rule bakta_download_db:
     '''
 
 rule bakta_annotate_gtdb_genomes:
-    # TODO: change locus_tag to accept wildcards.acc if bakta/#92 gets implemented.
     input: 
-        fna=ancient("outputs/gtdb_genomes_charcoal/{gtdb_species}/{acc}_genomic.fna.gz.clean.fa.gz"),
+        fna=ancient("outputs/gtdb_genomes/{gtdb_species}/{acc}_genomic.fna.gz.clean.fa.gz"),
         db="inputs/bakta_db/db/version.json",
     output: 
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.faa",
@@ -301,15 +239,8 @@ rule bakta_annotate_gtdb_genomes:
         --locus {wildcards.acc} --locus-tag {wildcards.acc} --keep-contig-headers {input.fna}
     '''
 
-def checkpoint_charcoal_decontaminate_genomes1(wildcards):
-    # checkpoint_output encodes the output dir from the checkpoint rule.
-    checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
-    file_names = expand("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.ffn",
-                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
-    return file_names
-
 rule cat_annotated_sequences:
-    input: ancient(checkpoint_charcoal_decontaminate_genomes1)
+    input: ancient(Checkpoint_GrabAccessions("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.ffn"))
     output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
     threads: 1
     resources: 
@@ -321,6 +252,7 @@ rule cat_annotated_sequences:
     '''
 
 # note clustering might not be necessary because of the pufferfish index underlying salmon indexing. 
+# but in any case it should help with downstream accounting, so keep.
 rule cluster_annotated_sequences:
     input: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
     output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa"
@@ -386,15 +318,8 @@ rule eggnog_annotate_clustered_sequences:
 ## generate pangenome
 #########################################################
 
-def checkpoint_charcoal_decontaminate_genomes2(wildcards):
-    # checkpoint_output encodes the output dir from the checkpoint rule.
-    checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
-    file_names = expand("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3",
-                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
-    return file_names
-
 rule roary_determine_pangenome:
-    input: ancient(checkpoint_charcoal_decontaminate_genomes2),
+    input: ancient(Checkpoint_GrabAccessions("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3"))
     output: "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa"
     conda: 'envs/roary.yml'
     resources:
@@ -481,15 +406,8 @@ rule extract_intergenic_from_genome:
     bedtools getfasta -fi {input.fna} -bed {input.bed} -name -s > {output}
     '''
 
-def checkpoint_charcoal_decontaminate_genomes3(wildcards):
-    # checkpoint_output encodes the output dir from the checkpoint rule.
-    checkpoint_output = checkpoints.charcoal_decontaminate_genomes.get(**wildcards).output[0]    
-    file_names = expand("outputs/gtdb_genomes_intergenic_seqs/{{gtdb_species}}/{acc}.fa",
-                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz")).acc)
-    return file_names
-
 rule cat_intergenic_sequences:
-    input: ancient(checkpoint_charcoal_decontaminate_genomes3)
+    input: ancient(Checkpoint_GrabAccessions("outputs/gtdb_genomes_intergenic_seqs/{{gtdb_species}}/{acc}.fa")),
     output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
     threads: 1
     resources: 
@@ -500,7 +418,6 @@ rule cat_intergenic_sequences:
     cat {input} > {output}
     '''
 
-# note clustering might not be necessary because of the pufferfish index underlying salmon indexing. 
 rule cluster_intergenic_sequences:
     input: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
     output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
