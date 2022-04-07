@@ -16,7 +16,8 @@ Once the base environment is installed, the analysis is automated with snakemake
 snakemake -s best_genome_reference.snakefile -j 1 --use-conda --rerun-incomplete
 ```
 
-If you're using an HPC such as slurm, snakemake can parallelize job submission and modulate resource usage (RAM, CPUs).
+Snakemake can parallelize job submission and modulate resource usage (RAM, CPUs). 
+We used the command below in a slurm cluster, but other cluster engines [are also supported](https://snakemake.readthedocs.io/en/stable/executing/cluster.html).
 
 ```
 snakemake -s best_genome_reference.snakefile -j 16 --use-conda --rerun-incomplete --latency-wait 15 -
@@ -46,7 +47,7 @@ While the exact output formats will become more clear as the pre-processing pipe
 
 ## Summary of RNA-seq samples
 
-As of January 2022, there were 54,445<sup>1</sup> publicly available bacterial and archaeal RNA seq samples from 5,751<sup>2</sup> experiments on the Sequence Read Archive (SRA).
+As of January 2022, there were 54,445[^samples] publicly available bacterial and archaeal RNA seq samples from 5,751[^experiments] experiments on the Sequence Read Archive (SRA).
 These samples were attributable to 1,722 distinct user-supplied organism names.
 The median number of times an organism name was observed was 7.
 
@@ -78,6 +79,7 @@ We suspect that this approach might be successful at capturing microbes that hav
 
 The *best genome* approach will select the best genome and use it as the reference transcriptome for each RNA-seq library.
 To achieve this, we will use sourmash `gather` to identify the reference genome in GTDB that best covers the k-mers in a given RNA-seq library.
+Here, "covers" refers to a minimum set cover (see [here](https://doi.org/10.1101/2022.01.11.475838), or the minimum number of reference genomes in a database needed to cover the k-mers in the RNA-seq data set.
 Using this information, we will download this genome and identify, index, and annotate its open reading frames.
 To harmonize annotations across data sets, we will rely on ortholog annotations produced by e.g. eggnog.
 One benefit of this approach is the direct use of model organism transcriptomes (e.g. *Escherichia coli* k12, *Pseudomonas aeruginosa* PAO1 or PA14), which could be exported as sub-compendia and would better integrate with existing and well-known community annotation resources.
@@ -135,7 +137,7 @@ The mix of strains present makes these samples a good test case to determine whe
 | SRX5678458     | Bacillus altitudinis strain=BA06 | 8 |
 | SRX7088415     | Bacillus altitudinis strain=BA06 | 5 | 
 
-#### *Pseudomonas aerruginoas*
+#### *Pseudomonas aeruginosa*
 
 Recently, compendia of *P. aeruginosa* were developed by mapping RNA-seq samples against PAO1 or PA14 references using salmon. 
 We identified 6 samples analyzed by this study to use as test cases for this compendium.
@@ -203,5 +205,5 @@ I will probably evaluate this after I have gather results for a few species. An 
 + Identify horizontally transferred genes that are shared (and expressed) between species
 
 ## Footnotes
-<sup>1</sup>Search criteria on the SRA ("Bacteria"[Organism] OR "Archaea"[Organism]) AND ("biomol rna"[Properties] AND "platform illumina"[Properties] AND "filetype fastq"[Properties]), and additionally filtered on Library Source "Transcriptomic", Library Strategy "RNA-Seq" or "OTHER", and Library Selection "cDNA", "other", "RANDOM", "unspecified", "RT-PCR", "RANDOM PCR", "PCR"  
-<sup>2</sup>Measured as distinct study accessions
+[^samples]: Search criteria on the SRA ("Bacteria"[Organism] OR "Archaea"[Organism]) AND ("biomol rna"[Properties] AND "platform illumina"[Properties] AND "filetype fastq"[Properties]), and additionally filtered on Library Source "Transcriptomic", Library Strategy "RNA-Seq" or "OTHER", and Library Selection "cDNA", "other", "RANDOM", "unspecified", "RT-PCR", "RANDOM PCR", "PCR"  
+[^experiments]: Measured as distinct study accessions
