@@ -25,7 +25,7 @@ import csv
 
 TMPDIR = "/tmp"
 
-m = pd.read_csv("inputs/toy_metadata/gs_fpc.tsv", header = 0, sep =  "\t")
+m = pd.read_csv("inputs/toy_metadata/gs_bp.tsv", header = 0, sep =  "\t")
 m["genome_acc_to_sra"] = m["reference_genome_accession"] + "-" + m["experiment_accession"]
 SRA = m["experiment_accession"]
 GENOME_ACC = m["reference_genome_accession"]
