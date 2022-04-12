@@ -9,6 +9,9 @@ SRA = list(m['experiment_accession'])
 TMPDIR = "/scratch/tereiter/" # TODO: update tmpdir based on computing env, or remove tmpdir invocation in resources
 #GTDB_SPECIES = ['s__Faecalibacterium_prausnitzii_C']
 
+gtdb_lineages = pd.read_csv("", header = 0)
+GTDB_ACCS = 
+
 class Checkpoint_RnaseqToReference:
     """
     Define a class a la genome-grist to simplify file specification
@@ -132,6 +135,8 @@ rule all:
 ## Generate reference transcriptome using pangenome analysis
 ##############################################################
 
+# TODO: update to GTDB RS207 taxonomy sheet
+# probably need to package with git repo as an input to expand over uncompressed directory
 rule download_gtdb_lineages:
     output: "inputs/gtdb-rs202.taxonomy.v2.csv"
     resources:
@@ -144,60 +149,19 @@ rule download_gtdb_lineages:
 # The outputs of this rule are used by the class Checkpoint_GrabAccessions.
 # The new wildcard, acc, is encoded in the "ident" column of the output
 # file "accessions". 
-# TR note: charcoal_lineages may be an unnecessary output file now that charcoal decontam is already done.
 checkpoint grab_species_accessions:
     input: gtdb_lineages = "inputs/gtdb-rs202.taxonomy.v2.csv"
-    output: 
-        accessions = "outputs/gtdb_genomes_by_species/{gtdb_species}.csv",
-        charcoal_lineages = "outputs/gtdb_genomes_by_species/{gtdb_species}_charcoal_lineages.csv"
+    output: accessions = "outputs/gtdb_genomes_by_species/{gtdb_species}.csv"
     resources:
         mem_mb = 4000
     threads: 1
     conda: "envs/tidyverse.yml"
     script: "scripts/grab_species_accessions.R"
 
-rule make_genome_info_csv:
-    output:
-        csv = 'inputs/gtdb_genomes/{gtdb_species}/{acc}.info.csv'
-    conda: "envs/download_genomes.yml"
-    resources:
-        mem_mb = 8000
-    threads: 1
-    shell: """
-    python scripts/genbank_genomes.py {wildcards.acc} --output {output.csv}
-    """
 
-rule download_matching_genomes:
-    input:
-        csvfile = ancient('inputs/gtdb_genomes/{gtdb_species}/{acc}.info.csv')
-    output:
-        genome = "inputs/gtdb_genomes/{gtdb_species}/{acc}_genomic.fna.gz"
-    resources:
-        mem_mb = 500
-    threads: 1
-    run:
-        with open(input.csvfile, 'rt') as infp:
-            r = csv.DictReader(infp)
-            rows = list(r)
-            assert len(rows) == 1
-            row = rows[0]
-            acc = row['acc']
-            assert wildcards.acc.startswith(acc)
-            url = row['genome_url']
-            name = row['ncbi_tax_name']
-
-            print(f"downloading genome for acc {acc}/{name} from NCBI...",
-                file=sys.stderr)
-            with open(output.genome, 'wb') as outfp:
-                with urllib.request.urlopen(url) as response:
-                    content = response.read()
-                    outfp.write(content)
-                    print(f"...wrote {len(content)} bytes to {output.genome}",
-                        file=sys.stderr)
-
-
+# update download link to RS207 when on OSF
 rule sourmash_download_gtdb_database:
-    output: "inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip" 
+    output: "inputs/sourmash_dbs/gtdb-rs207.genomic.k31.zip" 
     resources:
         mem_mb = 1000,
         tmpdir = TMPDIR
@@ -216,9 +180,26 @@ rule bakta_download_db:
     bakta_db download --output {params.outdir}
     '''
 
+rule download_charcoal_gtdb_rs207_genomes:
+    output: "inputs/charcoal_gtdb_rs207_genomes.tar.gz"
+    threads: 1
+    resources: mem_mb = 1000
+    shell:'''
+    wget -O {output} URL # TODO: ADD URL
+    '''
+
+rule decompress_charcoal_gtdb_rs207_genomes:
+    input: "inputs/charcoal_gtdb_rs207_genomes.tar.gz"
+    output: expand("inputs/charcoal_gtdb_rs207_genomes/{all_accs}_genomic.fna.gz.clean.fa.gz", all_accs = ALL_ACCS)
+    params: outdir = "outputs/charcoal_gtdb_rs207_genomes/"
+    resources: mem_mb = 1000
+    shell:'''
+    tar xf {input} -C {params.outdir}
+    '''
+
 rule bakta_annotate_gtdb_genomes:
     input: 
-        fna=ancient("outputs/gtdb_genomes/{gtdb_species}/{acc}_genomic.fna.gz.clean.fa.gz"),
+        fna=ancient("inputs/charcoal_gtdb_rs207_genomes/{acc}_genomic.fna.gz.clean.fa.gz"),
         db="inputs/bakta_db/db/version.json",
     output: 
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.faa",
@@ -559,7 +540,7 @@ rule sourmash_download_human_sig:
 rule rnaseq_sample_sourmash_gather_against_gtdb:
     input:
         sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
-        db="inputs/sourmash_dbs/gtdb-rs202.genomic.k31.zip",
+        db="inputs/sourmash_dbs/gtdb-rs207.genomic.k31.zip",
         human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
     output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
