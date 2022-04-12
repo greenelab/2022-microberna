@@ -159,17 +159,6 @@ checkpoint grab_species_accessions:
     script: "scripts/grab_species_accessions.R"
 
 
-# update download link to RS207 when on OSF
-rule sourmash_download_gtdb_database:
-    output: "inputs/sourmash_dbs/gtdb-rs207.genomic.k31.zip" 
-    resources:
-        mem_mb = 1000,
-        tmpdir = TMPDIR
-    threads: 1
-    shell:'''
-    wget -O {output} https://osf.io/94mzh/download
-    '''
-
 rule bakta_download_db:
     output: "inputs/bakta_db/db/version.json"
     threads: 1
@@ -525,6 +514,17 @@ rule rnaseq_sample_sourmash_sketch:
     conda: "envs/sourmash.yml"
     shell:'''
     sourmash sketch dna -p k=21,k=31,k=51,scaled=1000,abund -o {output} --name {wildcards.sra} {input}
+    '''
+
+# update download link to RS207 when on OSF
+rule sourmash_download_gtdb_database:
+    output: "inputs/sourmash_dbs/gtdb-rs207.genomic.k31.zip" 
+    resources:
+        mem_mb = 1000,
+        tmpdir = TMPDIR
+    threads: 1
+    shell:'''
+    wget -O {output} https://osf.io/94mzh/download
     '''
 
 rule sourmash_download_human_sig:
