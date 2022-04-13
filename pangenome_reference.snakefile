@@ -4,7 +4,7 @@ import urllib.request
 import pandas as pd
 
 m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
-SRA = list(m['experiment_accession'])
+SRA = list(m['run_accession'])
 
 gtdb_lineages = pd.read_csv("inputs/gtdb-rs202.taxonomy.v2.csv", header = 0)
 GTDB_ACCS = list(gtdb_lineages['ident'])
@@ -459,7 +459,7 @@ rule rnaseq_sample_download:
         mem_mb=8000,
         time_min=120
     run:
-        row = m.loc[m['experiment_accession'] == wildcards.sra]
+        row = m.loc[m['run_accession'] == wildcards.sra]
         fastqs = row['fastq_ftp'].values[0]
         fastqs = fastqs.split(";")
         if len(fastqs) == 1:
