@@ -1,7 +1,6 @@
 library(readr)
 library(dplyr)
 
-#gtdb_lineages <- read_csv("inputs/gtdb-rs202.taxonomy.v2.csv")
 gtdb_lineages <- read_csv(snakemake@input[['gtdb_lineages']])
 
 #gather <- read_csv("outputs/rnaseq_sourmash_gather/ERX3558803_gtdb_k31.csv") %>%
