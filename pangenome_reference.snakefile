@@ -528,11 +528,22 @@ rule sourmash_download_human_sig:
     wget -O {output} https://osf.io/anj6b/download
     '''
 
+rule sourmash_download_euk_database:
+    output: "inputs/sourmash_dbs/euk_rna_k31.tar.gz"
+    resources:
+        mem_mb = 1000,
+        time_min = 10
+    threads: 1
+    shell:'''
+    wget -O {output} https://osf.io/qk5th/download
+    '''
+
 rule rnaseq_sample_sourmash_gather_against_gtdb:
     input:
         sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
         db="inputs/sourmash_dbs/gtdb-rs207.genomic.dna.k31.zip",
-        human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
+        human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig",
+        euk="inputs/sourmash_dbs/euk_rna_k31.tar.gz"
     output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
@@ -541,7 +552,7 @@ rule rnaseq_sample_sourmash_gather_against_gtdb:
     benchmark: "benchmarks/rnaseq/sourmash_gather_k31_{sra}.txt"
     conda: "envs/sourmash.yml"
     shell:'''
-    sourmash gather -o {output} --scaled 2000 -k 31 {input.sig} {input.db} {input.human}
+    sourmash gather -o {output} --scaled 2000 -k 31 {input.sig} {input.db} {input.human} {input.euk}
     '''
 
 checkpoint rnaseq_sample_select_best_species_reference:
