@@ -558,7 +558,7 @@ checkpoint rnaseq_sample_select_best_species_reference:
     """
     input:
         gtdb_lineages="inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv.gz",
-        gather="outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
+        gather=ancient("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv")
     output: sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"
     conda: "envs/tidyverse.yml"
     resources:
@@ -570,7 +570,7 @@ checkpoint rnaseq_sample_select_best_species_reference:
 
 rule rnaseq_quantify_against_species_pangenome:
     input: 
-        sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv",
+        sra_to_ref_species=ancient("outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"),
         index = ancient("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"),
         reads = "outputs/rnaseq_fastp/{sra}.fq.gz",
         eggnog = "outputs/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations" # not actually needed here, but trick snakemake into making these annots
