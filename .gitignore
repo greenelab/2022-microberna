@@ -1,0 +1,9 @@
+.DS_Store
+.Rhistory
+.snakemake/
+benchmarks/
+inputs/.DS_Store
+inputs/bakta_db/
+inputs/sourmash_dbs/
+inputs/toy_metadata/filerepor*
+outputs/
