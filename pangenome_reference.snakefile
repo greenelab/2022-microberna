@@ -3,10 +3,10 @@ import sys
 import urllib.request
 import pandas as pd
 
-m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
+m = pd.read_csv("inputs/20220407_runinfo.tsv.gz", sep = "\t", header = 0)
 SRA = list(m['run_accession'])
 
-gtdb_lineages = pd.read_csv("inputs/gtdb-rs202.taxonomy.v2.csv", header = 0)
+gtdb_lineages = pd.read_csv("inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv", header = 0)
 GTDB_ACCS = list(gtdb_lineages['ident'])
 
 class Checkpoint_RnaseqToReference:
@@ -132,7 +132,7 @@ rule all:
 # The new wildcard, acc, is encoded in the "ident" column of the output
 # file "accessions". 
 checkpoint grab_species_accessions:
-    input: gtdb_lineages = "inputs/gtdb-rs202.taxonomy.v2.csv"
+    input: gtdb_lineages = "inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv"
     output: accessions = "outputs/gtdb_genomes_by_species/{gtdb_species}.csv"
     resources:
         mem_mb = 4000,
@@ -557,7 +557,7 @@ checkpoint rnaseq_sample_select_best_species_reference:
     https://github.com/taylorreiter/2021-metapangenome-example/blob/main/Snakefile#L90
     """
     input:
-        gtdb_lineages="inputs/gtdb-rs202.taxonomy.v2.csv",
+        gtdb_lineages="inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv",
         gather="outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     output: sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"
     conda: "envs/tidyverse.yml"
