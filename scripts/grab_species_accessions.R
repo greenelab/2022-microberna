@@ -10,7 +10,3 @@ gtdb_lineages <- read_csv(snakemake@input[['gtdb_lineages']])
 gtdb_lineages_species <- gtdb_lineages %>%
   filter(species == gtdb_species_string)
 write_csv(gtdb_lineages_species, snakemake@output[['accessions']])
-
-charcoal_lineages <- gtdb_lineages_species %>%
-  mutate(ident = paste0(ident, "_genomic.fna.gz"))
-write_csv(charcoal_lineages, snakemake@output[['charcoal_lineages']])

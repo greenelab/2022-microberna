@@ -5,6 +5,7 @@ import pandas as pd
 
 m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
 SRA = list(m['experiment_accession'])
+print(SRA)
 
 #GTDB_SPECIES = ['s__Faecalibacterium_prausnitzii_C']
 
@@ -488,7 +489,7 @@ rule rnaseq_sample_sourmash_sketch:
 
 # update download link to RS207 when on OSF
 rule sourmash_download_gtdb_database:
-    output: "inputs/sourmash_dbs/gtdb-rs207.genomic.k31.zip" 
+    output: "inputs/sourmash_dbs/gtdb-rs207.genomic.dna.k31.zip"
     resources:
         mem_mb = 1000,
     threads: 1
@@ -508,7 +509,7 @@ rule sourmash_download_human_sig:
 rule rnaseq_sample_sourmash_gather_against_gtdb:
     input:
         sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
-        db="inputs/sourmash_dbs/gtdb-rs207.genomic.k31.zip",
+        db="inputs/sourmash_dbs/gtdb-rs207.genomic.dna.k31.zip",
         human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
     output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
