@@ -5,9 +5,6 @@ import pandas as pd
 
 m = pd.read_csv("inputs/toy_metadata/toy_fpc.tsv", sep = "\t", header = 0)
 SRA = list(m['experiment_accession'])
-print(SRA)
-
-#GTDB_SPECIES = ['s__Faecalibacterium_prausnitzii_C']
 
 gtdb_lineages = pd.read_csv("inputs/gtdb-rs202.taxonomy.v2.csv", header = 0)
 GTDB_ACCS = list(gtdb_lineages['ident'])
@@ -123,10 +120,6 @@ class Checkpoint_GrabAccessions:
 
 rule all:
     input:
-        # generate pangenome and annotate with eggnog
-        #expand("outputs/gtdb_genomes_roary_eggnog/{gtdb_species}.emapper.annotations", gtdb_species = GTDB_SPECIES),
-        # generate pantranscriptome and index it with salmon
-        #expand("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json", gtdb_species = GTDB_SPECIES)
         # gather RNAseq sample
         #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
         Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}/{sra}_quant/quant.sf", sra = SRA), SRA),
@@ -142,7 +135,8 @@ checkpoint grab_species_accessions:
     input: gtdb_lineages = "inputs/gtdb-rs202.taxonomy.v2.csv"
     output: accessions = "outputs/gtdb_genomes_by_species/{gtdb_species}.csv"
     resources:
-        mem_mb = 4000
+        mem_mb = 4000,
+        time_min = 10 
     threads: 1
     conda: "envs/tidyverse.yml"
     script: "scripts/grab_species_accessions.R"
@@ -151,26 +145,33 @@ checkpoint grab_species_accessions:
 rule bakta_download_db:
     output: "inputs/bakta_db/db/version.json"
     threads: 1
-    resources: mem_mb = 4000
+    resources: 
+        mem_mb = 4000,
+        time_min = 240
     params: outdir = "inputs/bakta_db"
     conda: "envs/bakta.yml"
     shell:'''
     bakta_db download --output {params.outdir}
     '''
 
+# TODO: add url for tar gz of genomes
 rule download_charcoal_gtdb_rs207_genomes:
     output: "inputs/charcoal_gtdb_rs207_genomes.tar.gz"
     threads: 1
-    resources: mem_mb = 1000
+    resources: 
+        mem_mb = 1000,
+        time_min = 240
     shell:'''
-    wget -O {output} URL # TODO: ADD URL
+    wget -O {output} URL
     '''
 
 rule decompress_charcoal_gtdb_rs207_genomes:
     input: "inputs/charcoal_gtdb_rs207_genomes.tar.gz"
     output: expand("inputs/charcoal_gtdb_rs207_genomes/{gtdb_accs}_genomic.fna.gz.clean.fa.gz", gtdb_accs = GTDB_ACCS)
     params: outdir = "inputs/charcoal_gtdb_rs207_genomes/"
-    resources: mem_mb = 1000
+    resources: 
+        mem_mb = 1000,
+        time_min = 60
     shell:'''
     tar xf {input} -C {params.outdir}
     '''
@@ -186,7 +187,8 @@ rule bakta_annotate_gtdb_genomes:
         "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.ffn",
     resources: 
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
-    benchmark: "benchmarks/bakta_{gtdb_species}/{acc}.txt"
+        time_min = 40
+    benchmark: "benchmarks/gtdb_genomes/bakta_{gtdb_species}/{acc}.txt"
     conda: 'envs/bakta.yml'
     params: 
         dbdir="inputs/bakta_db/db/",
@@ -203,7 +205,8 @@ rule cat_annotated_sequences:
     threads: 1
     resources: 
         mem_mb=2000,
-    benchmark:"benchmarks/cat_annotated_seqs_{gtdb_species}.txt"
+        time_min = 20
+    benchmark:"benchmarks/gtdb_genomes/cat_annotated_seqs_{gtdb_species}.txt"
     shell:'''
     cat {input} > {output}
     '''
@@ -216,8 +219,9 @@ rule cluster_annotated_sequences:
     threads: 1
     resources: 
         mem_mb=16000,
+        time_min=30
     conda: "envs/cdhit.yml"
-    benchmark:"benchmarks/cluster_annotated_{gtdb_species}.txt"
+    benchmark:"benchmarks/gtdb_genomes/cluster_annotated_{gtdb_species}.txt"
     shell:'''
     cd-hit-est -c .95 -d 0 -i {input} -o {output}
     '''
@@ -228,7 +232,8 @@ rule translate_clustered_sequences_for_annotations:
     conda: 'envs/emboss.yml'
     resources:
         mem_mb = 16000,
-    benchmark: "benchmarks/transeq_{gtdb_species}.txt"
+        time_min=20
+    benchmark: "benchmarks/gtdb_genomes/transeq_{gtdb_species}.txt"
     threads: 2
     shell:'''
     transeq {input} {output}
@@ -239,6 +244,7 @@ rule eggnog_download_db:
     threads: 1   
     resources: 
         mem_mb = 4000,
+        time_min=2880
     params: datadir = "inputs/eggnog_db"
     conda: "envs/eggnog.yml"
     shell:'''
@@ -253,7 +259,8 @@ rule eggnog_annotate_clustered_sequences:
     conda: 'envs/eggnog.yml'
     resources:
         mem_mb = 32000,
-    benchmark: "benchmarks/eggnog_{gtdb_species}.txt"
+        time_min=2880
+    benchmark: "benchmarks/gtdb_genomes/eggnog_{gtdb_species}.txt"
     threads: 8
     params: 
         outdir = lambda wildcards: "outputs/gtdb_genomes_annotated_comb_eggnog/" + wildcards.gtdb_species,
@@ -277,7 +284,8 @@ rule roary_determine_pangenome:
     conda: 'envs/roary.yml'
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000,
-    benchmark: "benchmarks/roary_{gtdb_species}.txt"
+        time_min = 2880
+    benchmark: "benchmarks/gtdb_genomes/roary_{gtdb_species}.txt"
     threads: 2
     params: 
         outdir = lambda wildcards: 'outputs/gtdb_genomes_roary/' + wildcards.gtdb_species
@@ -296,8 +304,9 @@ rule define_genome_regions_as_bed:
     threads: 1
     resources: 
         mem_mb=2000,
+        tim_min = 10
     conda: "envs/samtools.yml"
-    benchmark:"benchmarks/genome_regions_{gtdb_species}/{acc}.txt"
+    benchmark:"benchmarks/gtdb_genomes/genome_regions_{gtdb_species}/{acc}.txt"
     shell:'''    
     samtools faidx {input}
     cut -f 1,2 {input}.fai | sort -n -k1 > {output}
@@ -309,8 +318,9 @@ rule filter_bakta_gff:
     threads: 1
     resources: 
         mem_mb=2000,
+        time_min = 10
     conda: "envs/rtracklayer.yml"
-    benchmark:"benchmarks/filter_gff_{gtdb_species}/{acc}.txt"
+    benchmark:"benchmarks/gtdb_genomes/filter_gff_{gtdb_species}/{acc}.txt"
     script: "scripts/filter_gff.R"
 
 rule sort_bakta_gff:
@@ -319,8 +329,9 @@ rule sort_bakta_gff:
     threads: 1
     resources: 
         mem_mb=2000,
+        time_min=5
     conda: "envs/bedtools.yml"
-    benchmark:"benchmarks/sort_gff_{gtdb_species}/{acc}.txt"
+    benchmark:"benchmarks/gtdb_genomes/sort_gff_{gtdb_species}/{acc}.txt"
     shell:'''
     sortBed -i {input} > {output}
     '''
@@ -333,8 +344,9 @@ rule complement_gff:
     threads: 1
     resources: 
         mem_mb=2000,
+        time_min=5
     conda: "envs/bedtools.yml"
-    benchmark:"benchmarks/complement_gff_{gtdb_species}/{acc}.txt"
+    benchmark:"benchmarks/gtdb_genomes/complement_gff_{gtdb_species}/{acc}.txt"
     shell:'''
     bedtools complement -i {input.gff} -g {input.sizes} > {output}
     '''
@@ -347,8 +359,9 @@ rule extract_intergenic_from_genome:
     threads: 1
     resources: 
         mem_mb=2000,
+        time_min=5
     conda: "envs/bedtools.yml"
-    benchmark:"benchmarks/extract_intergenic_{gtdb_species}/{acc}.txt"
+    benchmark:"benchmarks/gtdb_genomes/extract_intergenic_{gtdb_species}/{acc}.txt"
     shell:'''
     bedtools getfasta -fi {input.fna} -bed {input.bed} -name -s > {output}
     '''
@@ -359,7 +372,8 @@ rule cat_intergenic_sequences:
     threads: 1
     resources: 
         mem_mb=2000,
-    benchmark:"benchmarks/cat_intergenic_{gtdb_species}.txt"
+        time_min=5
+    benchmark:"benchmarks/gtdb_genomes/cat_intergenic_{gtdb_species}.txt"
     shell:'''
     cat {input} > {output}
     '''
@@ -370,8 +384,9 @@ rule cluster_intergenic_sequences:
     threads: 1
     resources: 
         mem_mb=16000,
+        time_min=30
     conda: "envs/cdhit.yml"
-    benchmark:"benchmarks/cluster_intergenic_{gtdb_species}.txt"
+    benchmark:"benchmarks/gtdb_genomes/cluster_intergenic_{gtdb_species}.txt"
     shell:'''
     cd-hit-est -c 1 -i {input} -o {output}
     '''
@@ -386,7 +401,8 @@ rule grab_intergenic_sequence_names:
     threads: 1
     resources: 
         mem_mb=2000,
-    benchmark:"benchmarks/grab_intergenic_names_{gtdb_species}.txt"
+        time_min=10
+    benchmark:"benchmarks/gtdb_genomes/grab_intergenic_names_{gtdb_species}.txt"
     shell:"""
     grep '>' {input} | awk 'sub(/^>/, "")' > {output}
     """
@@ -399,7 +415,8 @@ rule combine_pangenome_and_intergenic_sequences:
     threads: 1
     resources: 
         mem_mb=2000,
-    benchmark:"benchmarks/combine_sequences_{gtdb_species}.txt"
+        time_min=5
+    benchmark:"benchmarks/gtdb_genomes/combine_sequences_{gtdb_species}.txt"
     shell:'''
     cat {input} > {output}
     '''
@@ -413,8 +430,9 @@ rule index_transcriptome:
     params: index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species
     resources: 
         mem_mb=16000,
+        time_min=20
     conda: "envs/salmon.yml"
-    benchmark:"benchmarks/salmon_index_{gtdb_species}.txt"
+    benchmark:"benchmarks/gtdb_genomes/salmon_index_{gtdb_species}.txt"
     shell:'''
     salmon index -t {input.seqs} -i {params.index_dir} --decoys {input.decoys} -k 31
     '''
@@ -438,7 +456,8 @@ rule rnaseq_sample_download:
     params: tmp_base = lambda wildcards: "inputs/tmp_raw/" + wildcards.sra
     threads: 1
     resources:
-        mem_mb=8000
+        mem_mb=8000,
+        time_min=120
     run:
         row = m.loc[m['experiment_accession'] == wildcards.sra]
         fastqs = row['fastq_ftp'].values[0]
@@ -480,6 +499,7 @@ rule rnaseq_sample_sourmash_sketch:
     output: "outputs/rnaseq_sourmash_sketch/{sra}.sig"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 2000 ,
+        time_min=60
     threads: 1
     benchmark: "benchmarks/rnaseq/sourmash_sketch_{sra}.txt"
     conda: "envs/sourmash.yml"
@@ -487,11 +507,12 @@ rule rnaseq_sample_sourmash_sketch:
     sourmash sketch dna -p k=21,k=31,k=51,scaled=1000,abund -o {output} --name {wildcards.sra} {input}
     '''
 
-# update download link to RS207 when on OSF
+# TODO: update download link to RS207 when on OSF
 rule sourmash_download_gtdb_database:
     output: "inputs/sourmash_dbs/gtdb-rs207.genomic.dna.k31.zip"
     resources:
         mem_mb = 1000,
+        time_min = 240
     threads: 1
     shell:'''
     wget -O {output} https://osf.io/94mzh/download
@@ -501,6 +522,7 @@ rule sourmash_download_human_sig:
     output: "inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig"
     resources:
         mem_mb = 1000,
+        time_min = 10
     threads: 1
     shell:'''
     wget -O {output} https://osf.io/anj6b/download
@@ -514,6 +536,7 @@ rule rnaseq_sample_sourmash_gather_against_gtdb:
     output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
+        time_min = 60
     threads: 1
     benchmark: "benchmarks/rnaseq/sourmash_gather_k31_{sra}.txt"
     conda: "envs/sourmash.yml"
@@ -540,6 +563,7 @@ checkpoint rnaseq_sample_select_best_species_reference:
     conda: "envs/tidyverse.yml"
     resources:
         mem_mb = 2000,
+        time_min=5
     threads: 1
     benchmark: "benchmarks/rnaseq/select_species_genome_{sra}.txt"
     script: "scripts/select_best_species_reference.R"
@@ -557,6 +581,7 @@ rule rnaseq_quantify_against_species_pangenome:
     conda: "envs/salmon.yml"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
+        time_min=180
     threads: 1
     benchmark: "benchmarks/rnaseq/salmon_quantify_{gtdb_species}-{sra}.txt"
     shell:'''
