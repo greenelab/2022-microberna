@@ -531,12 +531,29 @@ rule sourmash_download_euk_database:
     wget -O {output} https://osf.io/qk5th/download
     '''
 
+rule sourmash_euk_database_untar:
+    '''
+    euk rna is a legacy database. We've since switched
+    formats, but this one needs to be untarred before it 
+    can be used for gather
+    '''
+    input: "inputs/sourmash_dbs/euk_rna_k31.tar.gz"
+    output: "inputs/sourmash_dbs/euk_rna_k31.sbt.json"
+    params: out_dir = "inputs/sourmash_dbs"
+    resources:
+        mem_mb = 1000,
+        time_min = 10
+    threads: 1
+    shell:'''
+    tar xf {input} -C {params.out_dir}
+    '''
+
 rule rnaseq_sample_sourmash_gather_against_gtdb:
     input:
         sig=outdir+"/rnaseq_sourmash_sketch/{sra}.sig",
         db="inputs/sourmash_dbs/gtdb-rs207.genomic.dna.k31.zip",
         human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig",
-        euk="inputs/sourmash_dbs/euk_rna_k31.tar.gz"
+        euk="inputs/sourmash_dbs/euk_rna_k31.sbt.json"
     output: outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
