@@ -7,9 +7,9 @@ import pandas as pd
 # on summit, indir is in projects, and outdir is scratch space
 # since indir is the same directory that snakemake will be run from,
 # it technically doesn't need to be parameterized
-#outdir = "/scratch/summit/treiter@xsede.org/2022-microberna/outputs"
-#indir = "/projects/treiter@xsede.org/2022-microberna/inputs"
-outdir = "outputs"
+outdir = "/scratch/summit/treiter@xsede.org/2022-microberna/outputs"
+indir = "/projects/treiter@xsede.org/2022-microberna/inputs"
+
 m = pd.read_csv("inputs/20220407_runinfo.tsv.gz", sep = "\t", header = 0)
 SRA = list(m['run_accession'])
 
