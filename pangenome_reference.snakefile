@@ -3,6 +3,13 @@ import sys
 import urllib.request
 import pandas as pd
 
+# set indir/outdir to read and write from
+# on summit, indir is in projects, and outdir is scratch space
+# since indir is the same directory that snakemake will be run from,
+# it technically doesn't need to be parameterized
+#outdir = "/scratch/summit/treiter@xsede.org/2022-microberna/outputs"
+#indir = "/projects/treiter@xsede.org/2022-microberna/inputs"
+outdir = "outputs"
 m = pd.read_csv("inputs/20220407_runinfo.tsv.gz", sep = "\t", header = 0)
 SRA = list(m['run_accession'])
 
@@ -12,8 +19,7 @@ GTDB_ACCS = list(gtdb_lineages['ident'])
 class Checkpoint_RnaseqToReference:
     """
     Define a class a la genome-grist to simplify file specification
-    from checkpoint (e.g. solve for {acc} wildcard). This approach
-    is documented at this url:
+    from checkpoint. This approach is documented at this url:
     http://ivory.idyll.org/blog/2021-snakemake-checkpoints.html
     """
     def __init__(self, pattern, sra_samples):
@@ -22,7 +28,7 @@ class Checkpoint_RnaseqToReference:
 
 
     def get_sra_to_species(self, sra):
-        sra_to_ref_csv = f'outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv'
+        sra_to_ref_csv = f'{outdir}/rnaseq_sourmash_gather_to_ref_species/{sra}.csv'
         assert os.path.exists(sra_to_ref_csv)
 
         # there should only be one sra_to_ref, as this reads in the csv
@@ -85,7 +91,7 @@ class Checkpoint_GrabAccessions:
         self.pattern = pattern
 
     def get_genome_accs(self, gtdb_species):
-        acc_csv = f'outputs/gtdb_genomes_by_species/{gtdb_species}.csv'
+        acc_csv = f'{outdir}/gtdb_genomes_by_species/{gtdb_species}.csv'
         assert os.path.exists(acc_csv)
 
         genome_accs = []
@@ -115,8 +121,8 @@ class Checkpoint_GrabAccessions:
 rule all:
     input:
         # gather RNAseq sample
-        #expand("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
-        Checkpoint_RnaseqToReference(expand("outputs/rnaseq_salmon/{{gtdb_species}}/{sra}_quant/quant.sf", sra = SRA), SRA),
+        #expand(outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra = SRA),
+        Checkpoint_RnaseqToReference(expand(outdir + "/rnaseq_salmon/{{gtdb_species}}/{sra}_quant/quant.sf", sra = SRA), SRA),
 
 ##############################################################
 ## Generate reference transcriptome using pangenome analysis
@@ -127,7 +133,7 @@ rule all:
 # file "accessions". 
 checkpoint grab_species_accessions:
     input: gtdb_lineages = "inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv.gz"
-    output: accessions = "outputs/gtdb_genomes_by_species/{gtdb_species}.csv"
+    output: accessions = outdir + "/gtdb_genomes_by_species/{gtdb_species}.csv"
     resources:
         mem_mb = 4000,
         time_min = 10 
@@ -175,10 +181,10 @@ rule bakta_annotate_gtdb_genomes:
         fna=ancient("inputs/charcoal_gtdb_rs207_genomes/{acc}_genomic.fna.gz.clean.fa.gz"),
         db="inputs/bakta_db/db/version.json",
     output: 
-        "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.faa",
-        "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3",
-        "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna",
-        "outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.ffn",
+        outdir + "/gtdb_genomes_bakta/{gtdb_species}/{acc}.faa",
+        outdir + "/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3",
+        outdir + "/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna",
+        outdir + "/gtdb_genomes_bakta/{gtdb_species}/{acc}.ffn",
     resources: 
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
         time_min = 40
@@ -186,16 +192,16 @@ rule bakta_annotate_gtdb_genomes:
     conda: 'envs/bakta.yml'
     params: 
         dbdir="inputs/bakta_db/db/",
-        outdir = lambda wildcards: 'outputs/gtdb_genomes_bakta/' + wildcards.gtdb_species,
+        outdirb = lambda wildcards: f'{outdir}/gtdb_genomes_bakta/' + wildcards.gtdb_species,
     threads: 1
     shell:'''
-    bakta --threads {threads} --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdir} \
+    bakta --threads {threads} --db {params.dbdir} --prefix {wildcards.acc} --output {params.outdirb} \
         --locus {wildcards.acc} --locus-tag {wildcards.acc} --keep-contig-headers {input.fna}
     '''
 
 rule cat_annotated_sequences:
-    input: ancient(Checkpoint_GrabAccessions("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.ffn"))
-    output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
+    input: ancient(Checkpoint_GrabAccessions(outdir + "/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.ffn"))
+    output: outdir + "/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -208,8 +214,8 @@ rule cat_annotated_sequences:
 # note clustering might not be necessary because of the pufferfish index underlying salmon indexing. 
 # but in any case it should help with downstream accounting, so keep.
 rule cluster_annotated_sequences:
-    input: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
-    output: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa"
+    input: outdir + "/gtdb_genomes_annotated_comb/{gtdb_species}_all_annotated_seqs.fa"
+    output: outdir + "/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa"
     threads: 1
     resources: 
         mem_mb=16000,
@@ -221,8 +227,8 @@ rule cluster_annotated_sequences:
     '''
 
 rule translate_clustered_sequences_for_annotations:
-    input: "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa" 
-    output: 'outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.faa'
+    input: outdir + "/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa" 
+    output: outdir + '/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.faa'
     conda: 'envs/emboss.yml'
     resources:
         mem_mb = 16000,
@@ -247,9 +253,9 @@ rule eggnog_download_db:
 
 rule eggnog_annotate_clustered_sequences:
     input: 
-        faa = "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.faa",
+        faa = outdir + "/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.faa",
         db = 'inputs/eggnog_db/eggnog.db'
-    output: "outputs/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations"
+    output: outdir + "/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations"
     conda: 'envs/eggnog.yml'
     resources:
         mem_mb = 32000,
@@ -257,12 +263,12 @@ rule eggnog_annotate_clustered_sequences:
     benchmark: "benchmarks/gtdb_genomes/eggnog_{gtdb_species}.txt"
     threads: 8
     params: 
-        outdir = lambda wildcards: "outputs/gtdb_genomes_annotated_comb_eggnog/" + wildcards.gtdb_species,
+        outdire = lambda wildcards: outdir + "/gtdb_genomes_annotated_comb_eggnog/" + wildcards.gtdb_species,
         dbdir = "inputs/eggnog_db"
     shell:'''
     mkdir -p tmp/
     emapper.py --cpu {threads} -i {input.faa} --output {wildcards.gtdb_species} \
-       --output_dir {params.outdir} -m hmmer -d none --tax_scope auto \
+       --output_dir {params.outdire} -m hmmer -d none --tax_scope auto \
        --go_evidence non-electronic --target_orthologs all --seed_ortholog_evalue 0.001 \
        --seed_ortholog_score 60 --override --temp_dir tmp/ \
        -d 2 --data_dir {params.dbdir}
@@ -273,8 +279,8 @@ rule eggnog_annotate_clustered_sequences:
 #########################################################
 
 rule roary_determine_pangenome:
-    input: ancient(Checkpoint_GrabAccessions("outputs/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3"))
-    output: "outputs/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa"
+    input: ancient(Checkpoint_GrabAccessions(outdir + "/gtdb_genomes_bakta/{{gtdb_species}}/{acc}.gff3"))
+    output: outdir + "/gtdb_genomes_roary/{gtdb_species}/pan_genome_reference.fa"
     conda: 'envs/roary.yml'
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000,
@@ -282,9 +288,9 @@ rule roary_determine_pangenome:
     benchmark: "benchmarks/gtdb_genomes/roary_{gtdb_species}.txt"
     threads: 2
     params: 
-        outdir = lambda wildcards: 'outputs/gtdb_genomes_roary/' + wildcards.gtdb_species
+        outdirr = lambda wildcards: outdir + '/gtdb_genomes_roary/' + wildcards.gtdb_species
     shell:'''
-    roary -r -e -n -f {params.outdir} -p {threads} -z {input}
+    roary -r -e -n -f {params.outdirr} -p {threads} -z {input}
     '''
 
 
@@ -293,8 +299,8 @@ rule roary_determine_pangenome:
 ############################################################
 
 rule define_genome_regions_as_bed:
-    input: ancient("outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna"),
-    output: "outputs/gtdb_genomes_regions_bed/{gtdb_species}/{acc}_region.sizes"
+    input: ancient(outdir + "/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna"),
+    output: outdir + "/gtdb_genomes_regions_bed/{gtdb_species}/{acc}_region.sizes"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -307,8 +313,8 @@ rule define_genome_regions_as_bed:
     '''
 
 rule filter_bakta_gff:
-    input:  gff=ancient("outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3"),
-    output: gff=temp("outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered.gff3"),
+    input:  gff=ancient(outdir + "/gtdb_genomes_bakta/{gtdb_species}/{acc}.gff3"),
+    output: gff=temp(outdir + "gtdb_genomes_gff/{gtdb_species}/{acc}_filtered.gff3"),
     threads: 1
     resources: 
         mem_mb=2000,
@@ -318,8 +324,8 @@ rule filter_bakta_gff:
     script: "scripts/filter_gff.R"
 
 rule sort_bakta_gff:
-    input: gff="outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered.gff3",
-    output: gff="outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered_sorted.gff3",
+    input: gff=outdir + "/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered.gff3",
+    output: gff=outdir + "/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered_sorted.gff3",
     threads: 1
     resources: 
         mem_mb=2000,
@@ -332,9 +338,9 @@ rule sort_bakta_gff:
 
 rule complement_gff:
     input:
-        gff="outputs/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered_sorted.gff3",
-        sizes= "outputs/gtdb_genomes_regions_bed/{gtdb_species}/{acc}_region.sizes"
-    output:"outputs/gtdb_genomes_intergenic_bed/{gtdb_species}/{acc}.bed"
+        gff=outdir + "/gtdb_genomes_gff/{gtdb_species}/{acc}_filtered_sorted.gff3",
+        sizes= outdir + "/gtdb_genomes_regions_bed/{gtdb_species}/{acc}_region.sizes"
+    output: outdir + "/gtdb_genomes_intergenic_bed/{gtdb_species}/{acc}.bed"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -347,9 +353,9 @@ rule complement_gff:
 
 rule extract_intergenic_from_genome:
     input:
-        fna=ancient("outputs/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna"),
-        bed="outputs/gtdb_genomes_intergenic_bed/{gtdb_species}/{acc}.bed"
-    output:"outputs/gtdb_genomes_intergenic_seqs/{gtdb_species}/{acc}.fa"
+        fna=ancient(outdir+"/gtdb_genomes_bakta/{gtdb_species}/{acc}.fna"),
+        bed=outdir+"/gtdb_genomes_intergenic_bed/{gtdb_species}/{acc}.bed"
+    output: outdir + "/gtdb_genomes_intergenic_seqs/{gtdb_species}/{acc}.fa"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -361,8 +367,8 @@ rule extract_intergenic_from_genome:
     '''
 
 rule cat_intergenic_sequences:
-    input: ancient(Checkpoint_GrabAccessions("outputs/gtdb_genomes_intergenic_seqs/{{gtdb_species}}/{acc}.fa")),
-    output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
+    input: ancient(Checkpoint_GrabAccessions(outdir+"/gtdb_genomes_intergenic_seqs/{{gtdb_species}}/{acc}.fa")),
+    output: outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -373,8 +379,8 @@ rule cat_intergenic_sequences:
     '''
 
 rule cluster_intergenic_sequences:
-    input: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
-    output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
+    input: outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_all_intergenic_seqs.fa"
+    output: outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
     threads: 1
     resources: 
         mem_mb=16000,
@@ -390,8 +396,8 @@ rule cluster_intergenic_sequences:
 ###################################################
 
 rule grab_intergenic_sequence_names:
-    input: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
-    output: "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt"
+    input: outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
+    output: outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -403,9 +409,9 @@ rule grab_intergenic_sequence_names:
 
 rule combine_pangenome_and_intergenic_sequences:
     input: 
-        "outputs/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa",
-        "outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
-    output: "outputs/gtdb_genomes_salmon_ref/{gtdb_species}.fa"
+        outdir+"/gtdb_genomes_annotated_comb/{gtdb_species}_clustered_annotated_seqs.fa",
+        outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seqs.fa"
+    output: outdir+"/gtdb_genomes_salmon_ref/{gtdb_species}.fa"
     threads: 1
     resources: 
         mem_mb=2000,
@@ -417,11 +423,11 @@ rule combine_pangenome_and_intergenic_sequences:
 
 rule index_transcriptome:
     input: 
-        seqs=ancient("outputs/gtdb_genomes_salmon_ref/{gtdb_species}.fa"),
-        decoys=ancient("outputs/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt")
-    output: "outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"
+        seqs=ancient(outdir+"/gtdb_genomes_salmon_ref/{gtdb_species}.fa"),
+        decoys=ancient(outdir+"/gtdb_genomes_intergenic_comb/{gtdb_species}_clustered_intergenic_seq_names.txt")
+    output: outdir+"/gtdb_genomes_salmon_index/{gtdb_species}/info.json"
     threads: 1
-    params: index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species
+    params: index_dir = lambda wildcards: outdir+"/gtdb_genomes_salmon_index/" + wildcards.gtdb_species
     resources: 
         mem_mb=16000,
         time_min=20
@@ -437,9 +443,9 @@ rule index_transcriptome:
 
 rule rnaseq_sample_download:
     output:
-        reads="outputs/rnaseq_fastp/{sra}.fq.gz",
-        json = "outputs/rnaseq_fastp/{sra}.fastp.json",
-        html = "outputs/rnaseq_fastp/{sra}.fastp.html"
+        reads=outdir+"/rnaseq_fastp/{sra}.fq.gz",
+        json = outdir+"/rnaseq_fastp/{sra}.fastp.json",
+        html = outdir+"/rnaseq_fastp/{sra}.fastp.html"
     params: tmp_base = lambda wildcards: "inputs/tmp_raw/" + wildcards.sra
     threads: 1
     resources:
@@ -482,8 +488,8 @@ rule rnaseq_sample_download:
                 
 
 rule rnaseq_sample_sourmash_sketch:
-    input: "outputs/rnaseq_fastp/{sra}.fq.gz",
-    output: "outputs/rnaseq_sourmash_sketch/{sra}.sig"
+    input: outdir+"/rnaseq_fastp/{sra}.fq.gz",
+    output: outdir+"/rnaseq_sourmash_sketch/{sra}.sig"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 2000 ,
         time_min=60
@@ -527,11 +533,11 @@ rule sourmash_download_euk_database:
 
 rule rnaseq_sample_sourmash_gather_against_gtdb:
     input:
-        sig="outputs/rnaseq_sourmash_sketch/{sra}.sig",
+        sig=outdir+"/rnaseq_sourmash_sketch/{sra}.sig",
         db="inputs/sourmash_dbs/gtdb-rs207.genomic.dna.k31.zip",
         human="inputs/sourmash_dbs/GCF_000001405.39_GRCh38.p13_rna.sig",
         euk="inputs/sourmash_dbs/euk_rna_k31.tar.gz"
-    output: "outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
+    output: outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
         time_min = 60
@@ -553,8 +559,8 @@ checkpoint rnaseq_sample_select_best_species_reference:
     """
     input:
         gtdb_lineages="inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv.gz",
-        gather=ancient("outputs/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv")
-    output: sra_to_ref_species="outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"
+        gather=ancient(outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv")
+    output: sra_to_ref_species= outdir + "/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"
     conda: "envs/tidyverse.yml"
     resources:
         mem_mb = 2000,
@@ -565,14 +571,14 @@ checkpoint rnaseq_sample_select_best_species_reference:
 
 rule rnaseq_quantify_against_species_pangenome:
     input: 
-        sra_to_ref_species=ancient("outputs/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"),
-        index = ancient("outputs/gtdb_genomes_salmon_index/{gtdb_species}/info.json"),
-        reads = "outputs/rnaseq_fastp/{sra}.fq.gz",
-        eggnog = "outputs/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations" # not actually needed here, but trick snakemake into making these annots
-    output: "outputs/rnaseq_salmon/{gtdb_species}/{sra}_quant/quant.sf"
+        sra_to_ref_species=ancient(outdir+"/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"),
+        index = ancient(outdir+"/gtdb_genomes_salmon_index/{gtdb_species}/info.json"),
+        reads = outdir+"/rnaseq_fastp/{sra}.fq.gz",
+        eggnog = outdir+"/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations" # not actually needed here, but trick snakemake into making these annots
+    output: outdir+"/rnaseq_salmon/{gtdb_species}/{sra}_quant/quant.sf"
     params: 
-        index_dir = lambda wildcards: "outputs/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
-        out_dir = lambda wildcards: "outputs/rnaseq_salmon/" + wildcards.gtdb_species + "/" + wildcards.sra + "_quant" 
+        index_dir = lambda wildcards: outdir + "/gtdb_genomes_salmon_index/" + wildcards.gtdb_species,
+        out_dir = lambda wildcards: outdir + "/rnaseq_salmon/" + wildcards.gtdb_species + "/" + wildcards.sra + "_quant" 
     conda: "envs/salmon.yml"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 16000 ,
