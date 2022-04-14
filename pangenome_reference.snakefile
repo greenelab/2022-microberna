@@ -51,9 +51,6 @@ class Checkpoint_RnaseqToReference:
 
             checkpoints.rnaseq_sample_select_best_species_reference.get(**ww)
 
-        # parse accessions in gather output file
-        #ref_to_sra_res = self.get_sra_to_species(w.sra)
-
         # what you want here is essentially a double for loop -
         # for each sra,
         #    get the species that matches to that SRA
@@ -71,10 +68,7 @@ class Checkpoint_RnaseqToReference:
                     p = expand(p, gtdb_species=gtdb_species)
                     results.append(p)
                     found = True
-        #p = expand(self.pattern, gtdb_species=ref_to_sra_res, **w)
 
-        #print('ZZZ', results)
-        
         results = sum(results, []) # turn list of lists into a list of character strings
         return results
 
@@ -442,13 +436,6 @@ rule index_transcriptome:
 #################################################################
 
 rule rnaseq_sample_download:
-    """
-    Need to figure out better download specification.
-    I went to the ENA, searched six samples I cared about, and downloaded the
-    metadata files, which contain the URLs. I assume there is a programmatic way
-    to generate ENA metadata tables for accessions of interest. Will investigate
-    more later.
-    """
     output:
         reads="outputs/rnaseq_fastp/{sra}.fq.gz",
         json = "outputs/rnaseq_fastp/{sra}.fastp.json",
@@ -561,11 +548,8 @@ checkpoint rnaseq_sample_select_best_species_reference:
     This will read in the gather results, and output one dataframe per RNA seq sample. 
     The dataframe will have the SRA accession and the reference genome accession.
     wildcard {sra} will already be defined as a list of RNAseq SRA accessions at the
-    beginning of the Snakefile, and the checkpoint class will output an amalgamation 
-    of wildcards {gtdb_species}-{sra}, which will be called {gtdb_species_to_sra} in 
-    the rule all, but the hyphen should allow for the wildcards to be solved separately.
-    Example:
-    https://github.com/taylorreiter/2021-metapangenome-example/blob/main/Snakefile#L90
+    beginning of the Snakefile, and the checkpoint class will output the proper 
+    gtdb species for each SRA accession.
     """
     input:
         gtdb_lineages="inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv.gz",
