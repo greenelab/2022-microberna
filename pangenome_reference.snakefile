@@ -446,11 +446,11 @@ rule rnaseq_sample_download:
         reads=outdir+"/rnaseq_fastp/{sra}.fq.gz",
         json = outdir+"/rnaseq_fastp/{sra}.fastp.json",
         html = outdir+"/rnaseq_fastp/{sra}.fastp.html"
-    params: tmp_base = lambda wildcards: "inputs/tmp_raw/" + wildcards.sra
+    params: tmp_base = lambda wildcards: outdir + "/tmp_raw/" + wildcards.sra
     threads: 1
     resources:
         mem_mb=8000,
-        time_min=120
+        time_min=480
     run:
         row = m.loc[m['run_accession'] == wildcards.sra]
         fastqs = row['fastq_ftp'].values[0]
@@ -458,7 +458,7 @@ rule rnaseq_sample_download:
         if len(fastqs) == 1:
             # single end data; download and stream directly to fastp for trimming.
             fastq = fastqs[0]
-            shell("mkdir -p inputs/tmp_raw")
+            shell("mkdir -p {outdir}/tmp_raw")
             if not os.path.exists(params.tmp_base + ".fastq.gz"):
                 shell("wget -O {params.tmp_base}.fastq.gz ftp://{fastq}")
 
@@ -472,7 +472,7 @@ rule rnaseq_sample_download:
             # paired end data; download both files, interleave, and then remove files
             fastq_1 = fastqs[0]
             fastq_2 = fastqs[1]
-            shell("mkdir -p inputs/tmp_raw")
+            shell("mkdir -p {outdir}/tmp_raw")
             if not os.path.exists(params.tmp_base + "_1.fastq.gz"):
                 shell("wget -O {params.tmp_base}_1.fastq.gz ftp://{fastq_1}")
 
@@ -492,7 +492,7 @@ rule rnaseq_sample_sourmash_sketch:
     output: outdir+"/rnaseq_sourmash_sketch/{sra}.sig"
     resources:
         mem_mb = lambda wildcards, attempt: attempt * 2000 ,
-        time_min=60
+        time_min=120
     threads: 1
     benchmark: "benchmarks/rnaseq/sourmash_sketch_{sra}.txt"
     conda: "envs/sourmash.yml"
@@ -556,14 +556,18 @@ rule rnaseq_sample_sourmash_gather_against_gtdb:
         euk="inputs/sourmash_dbs/euk_rna_k31.sbt.json"
     output: outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv"
     resources:
-        mem_mb = lambda wildcards, attempt: attempt * 16000 ,
-        time_min = 60
+        mem_mb = lambda wildcards, attempt: attempt * 34000 ,
+        time_min = 180
     threads: 1
     benchmark: "benchmarks/rnaseq/sourmash_gather_k31_{sra}.txt"
     conda: "envs/sourmash.yml"
     shell:'''
     sourmash gather -o {output} --scaled 2000 -k 31 {input.sig} {input.db} {input.human} {input.euk}
     '''
+
+rule fix_dag:
+    input: expand(outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv", sra =SRA)
+    output: touch(outdir + "/rnaseq_sourmash_gather/all_gather_done.txt")
 
 checkpoint rnaseq_sample_select_best_species_reference:
     """
@@ -575,6 +579,7 @@ checkpoint rnaseq_sample_select_best_species_reference:
     gtdb species for each SRA accession.
     """
     input:
+        dummy = outdir + "/rnaseq_sourmash_gather/all_gather_done.txt",
         gtdb_lineages="inputs/gtdb-rs207/gtdb-rs207.taxonomy.csv.gz",
         gather=ancient(outdir+"/rnaseq_sourmash_gather/{sra}_gtdb_k31.csv")
     output: sra_to_ref_species= outdir + "/rnaseq_sourmash_gather_to_ref_species/{sra}.csv"
