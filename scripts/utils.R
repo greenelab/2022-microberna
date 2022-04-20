@@ -71,7 +71,7 @@ read_gff <- function(filepath){
 }
 
 read_gather <- function(path){
-  gather <- read_csv(path, col_types = "dddddlllcccddddcccd")
+  gather <- read_csv(path, col_types = "ddddddddcccddddcccd")
 }
 
 read_fastp <- function(fastp_json_path){
