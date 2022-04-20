@@ -1,0 +1,24 @@
+.DS_Store
+.Rhistory
+.snakemake/
+notebooks/.ipynb_checkpoints/
+benchmarks/
+inputs/.DS_Store
+inputs/bakta_db/
+inputs/sourmash_dbs/
+inputs/toy_metadata/filerepor*
+outputs/
+# downloaded files
+sandbox/20220203_try_unit_annots/GCF_010509575.1_ASM1050957v1_genomic.gff.gz
+inputs/make_metadata/sra_ids_to_runinfo.py
+inputs/gtdb-rs207/ar53_metadata_r207.tsv
+inputs/gtdb-rs207/ar53_metadata_rs207.tar.gz
+inputs/gtdb-rs207/bac120_metadata_r207.tsv
+inputs/gtdb-rs207/bac120_metadata_rs207.tar.gz
+inputs/gtdb-rs207/gtdb-rs207.taxonomy.representives.csv
+inputs/gtdb-rs207/gtdb-rs207.taxonomy.with-strain.csv
+inputs/gtdb-rs207/gtdb-rs207.taxonomy.with-strain.representives.csv
+inputs/gtdb/
+# slurm log files
+slurm/
+slurm*out

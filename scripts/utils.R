@@ -71,7 +71,33 @@ read_gff <- function(filepath){
 }
 
 read_gather <- function(path){
-  gather <- read_csv(path, col_types = "dddddlllcccddddcccd")
+  gather <- read_csv(path, col_types = "ddddddddcccddddcccd")
+}
+
+read_fastp <- function(fastp_json_path){
+  # read in the json file as a list
+  fastp <- rjson::fromJSON(file = fastp_json_path)
+  # parse each section into a wide dataframe
+  before_filtering <- fastp$summary$before_filtering %>% 
+    as_tibble() %>% 
+    rename_with(~paste0("before_filtering_", .))
+  
+  after_filtering <- fastp$summary$after_filtering %>% 
+    as_tibble() %>% 
+    rename_with(~paste0("after_filtering_", .))
+  
+  filtering_result <- fastp$filtering_result %>% 
+    as_tibble() %>% 
+    rename_with(~paste0("filtering_result_", .))
+  
+  duplication <- fastp$duplication %>%
+    as_tibble() %>%
+    rename_with(~paste0("duplication_", .))
+  
+  file_name <- tibble(file_name = basename(fastp_json_path))
+  # bind into a dataframe 
+  fastp_df <- bind_cols(file_name, before_filtering, after_filtering, filtering_result, duplication)
+  return(fastp_df)
 }
 
 # add an R2 and eq to a linear regression ---------------------------------
