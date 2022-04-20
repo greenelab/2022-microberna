@@ -19,4 +19,6 @@ inputs/gtdb-rs207/gtdb-rs207.taxonomy.representives.csv
 inputs/gtdb-rs207/gtdb-rs207.taxonomy.with-strain.csv
 inputs/gtdb-rs207/gtdb-rs207.taxonomy.with-strain.representives.csv
 inputs/gtdb/
-
+# slurm log files
+slurm/
+slurm*out

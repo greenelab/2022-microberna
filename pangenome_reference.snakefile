@@ -450,7 +450,7 @@ rule rnaseq_sample_download:
     threads: 1
     resources:
         mem_mb=8000,
-        time_min=480
+        time_min=960
     run:
         row = m.loc[m['run_accession'] == wildcards.sra]
         fastqs = row['fastq_ftp'].values[0]
